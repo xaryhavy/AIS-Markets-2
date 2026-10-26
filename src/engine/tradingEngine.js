@@ -21,6 +21,7 @@ const dataQuality = require('../data/quality');
 const entryPause = require('./entryPause');
 const shutdownRecords = require('../governance/shutdown');
 const mtmCaps = require('../risk/mtmCaps');
+const unmanaged = require('../execution/unmanaged');
 
 let engineInterval = null;
 let monitorInterval = null;
@@ -93,6 +94,10 @@ async function runCycle() {
   let rec;
   try {
     rec = await trading.reconcile(tracked);
+    // Positions the owner has ignored stop blocking entries (decision 5); they stay listed as unmanaged, read-only.
+    const ignored = await unmanaged.ignoredIds();
+    rec.ignoredUnmanaged = rec.unmanaged.filter(p => ignored.has(String(p.positionId)));
+    rec.unmanaged = rec.unmanaged.filter(p => !ignored.has(String(p.positionId)));
     lastReconcileOk = true;
   } catch (e) {
     // If the broker cannot be reconciled, nothing new may be opened. Exits still run below.

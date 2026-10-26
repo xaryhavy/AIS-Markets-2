@@ -331,6 +331,31 @@ app.post('/api/engine/entries/resume', async (req, res) => {
 });
 // Mark-to-market loss caps: owner reads and sets them; a latched cap is cleared only by an owner resume after reconciliation.
 app.get('/api/risk/mtm', async (req, res) => res.json(await require('./risk/mtmCaps').status()));
+// Unmanaged broker positions: read-only list with protection status, and owner resolutions (adopt, close, ignore).
+app.get('/api/positions/unmanaged', async (req, res) => {
+  const unmanagedMod = require('./execution/unmanaged');
+  const trades = await storage.load('trades');
+  const tracked = new Set(trades.filter(t => t.status === 'OPEN' && t.positionId !== undefined).map(t => Number(t.positionId)));
+  let open = [];
+  try { open = await require('./ctrader/trading').openPositions(); } catch (e) { return res.status(503).json({ error: e.message }); }
+  const ignored = await unmanagedMod.ignoredIds();
+  const list = open.filter(p => !tracked.has(Number(p.positionId))).map(p => ({ ...unmanagedMod.describe(p, id => require('./ctrader/marketFeed').nameForSymbolId(id)), ignored: ignored.has(String(p.positionId)) }));
+  res.json({ unmanaged: list, resolutions: await unmanagedMod.resolutions() });
+});
+app.post('/api/positions/unmanaged/:positionId/resolve', async (req, res) => {
+  const unmanagedMod = require('./execution/unmanaged');
+  const trading = require('./ctrader/trading');
+  const orderManager = require('./execution/orderManager');
+  try {
+    const open = await trading.openPositions();
+    const trades = await storage.load('trades');
+    const tracked = new Set(trades.filter(t => t.status === 'OPEN' && t.positionId !== undefined).map(t => Number(t.positionId)));
+    const current = open.filter(p => !tracked.has(Number(p.positionId)));
+    const { action, reason } = req.body || {};
+    const r = await unmanagedMod.resolve({ positionId: req.params.positionId, action, reason, actor: 'owner', current, deps: { symbolFor: id => require('./ctrader/marketFeed').nameForSymbolId(id), recordAdopted: orderManager.recordAdopted, closeMarket: trading.closeMarket } });
+    res.json(r);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 // Data gate: how many unexplained missing candles inside the lookback are tolerated before a block (default 0).
 app.get('/api/data/gate', (req, res) => res.json({ gapTolerance: require('./data/quality').getGapTolerance() }));
 app.post('/api/data/gate', async (req, res) => {
