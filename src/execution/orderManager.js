@@ -2,6 +2,8 @@ const storage = require('../data/storage');
 const broker = require('./brokerAdapter');
 const marketData = require('../data/marketdata');
 const trading = require('../ctrader/trading');
+const brokerAdapter = require('./brokerAdapter');
+const audit = require('../audit/audit');
 
 // Opens a real market position on the cTrader demo account.
 async function openPosition(signal, size, stops) {
@@ -54,7 +56,7 @@ async function checkAndClosePositions() {
     if (reason) {
       const result = broker.closePosition(t, price);
       await storage.update('trades', t.id, { status: 'CLOSED', exitPrice: result.exitPrice, pnl: result.pnl, closeTime: result.closeTime, closeReason: reason });
-      closed.push({ ...t, ...result, closeReason: reason });
+      closed.push({ ...t, ...result, status: 'CLOSED', closeReason: reason });
     }
   }
   return closed;
@@ -87,6 +89,36 @@ async function closeCtraderTrade(t) {
   const update = { status: 'CLOSED', exitPrice: result.exitPrice, pnl: result.pnl, closeTime: new Date().toISOString(), closeReason: reason };
   await storage.update('trades', t.id, update);
   return { ...t, ...update };
+}
+
+// PAPER mode: a simulated fill at the current quote. Never sends anything to a broker. Stored as its own evidence mode.
+async function openPaperPosition(signal, size, stops) {
+  const price = marketData.getPrice(signal.symbol);
+  if (!Number.isFinite(price)) throw new Error(`no price for ${signal.symbol}; paper fill not simulated`);
+  const order = brokerAdapter.placeOrder(signal.symbol, signal.action, size, price);
+  const trade = {
+    id: `paper-${order.id}`,
+    symbol: signal.symbol,
+    action: signal.action,
+    size,
+    entryPrice: order.entryPrice,
+    stopLoss: stops.stopLoss,
+    takeProfit: stops.takeProfit,
+    status: 'OPEN',
+    openTime: new Date().toISOString(),
+    reason: signal.reason,
+    score: signal.score,
+    environment: 'paper',
+    source: 'paper',
+    evidenceMode: 'PAPER',
+    positionId: null,
+    orderId: null,
+    volume: null,
+    features: signal.features || null
+  };
+  await storage.append('trades', trade);
+  audit.record('PAPER_FILL', { id: trade.id, symbol: trade.symbol, action: trade.action, size, entryPrice: trade.entryPrice });
+  return trade;
 }
 
 // Closes a trade AIS recorded, whatever the price, and records the result. Used for owner-requested and test closes.
@@ -147,4 +179,4 @@ async function recordAdopted(intent, position) {
   return trade;
 }
 
-module.exports = { openPosition, checkAndClosePositions, syncWithBroker, recordAdopted, closeTrade };
+module.exports = { openPosition, openPaperPosition, checkAndClosePositions, syncWithBroker, recordAdopted, closeTrade };

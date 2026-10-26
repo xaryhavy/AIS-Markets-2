@@ -474,6 +474,15 @@ app.get('/api/readiness', async (req, res) => {
 });
 
 app.get('/api/mode', (req, res) => res.json(mode.describe()));
+// DEMO_SUPERVISED: owner enables a session for a fixed number of hours (1 to 8). Expires back to OBSERVATION.
+app.post('/api/mode/supervised', async (req, res) => {
+  try {
+    const { hours, confirm } = req.body || {};
+    res.json(await mode.enableSupervised({ hours, confirm, actor: 'owner (API)' }));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 app.post('/api/mode', async (req, res) => {
   try {
     const { mode: target, confirm } = req.body || {};

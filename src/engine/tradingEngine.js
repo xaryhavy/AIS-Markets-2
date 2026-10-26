@@ -78,6 +78,7 @@ async function syncOps() {
 async function runCycle() {
   stats.cycles++;
   lastCycleAt = Date.now();
+  await mode.expireIfDue().catch(() => {});
   await syncOps();
   stats.lastRun = new Date().toISOString();
 
@@ -120,7 +121,8 @@ async function runCycle() {
   for (const trade of closed) {
     const strategyName = trade.features?.strategy || 'unknown';
     const regime = trade.features?.regime || 'UNKNOWN';
-    await adaptiveLearner.updateOnTrade(trade, strategyName, regime);
+    // Learning uses broker-demo results only. Paper, simulated and legacy trades never teach the learner (decision 1 and 7).
+    if (trade.source === 'ctrader' && trade.evidenceMode !== 'PAPER') await adaptiveLearner.updateOnTrade(trade, strategyName, regime);
     console.log(`[ENGINE] Closed ${trade.symbol} ${trade.action} — PnL: ${trade.pnl} (${trade.closeReason})`);
   }
   if (closed.length) await mlModel.maybeRetrain();
@@ -170,7 +172,7 @@ async function runCycle() {
       signal.levels = noTrade.frozenLevels(signal, price0, stops0.stopLoss, stops0.takeProfit);
     }
     // Operating mode: decisions are still recorded, but no broker order is placed outside the order-placing modes.
-    if (!mode.allowsBrokerOrders()) {
+    if (!mode.allowsBrokerOrders() && mode.current() !== 'PAPER') {
       await shadowTracker.recordDecision(signal, { decision: 'SKIPPED', reason: `Operating mode ${mode.current()}: no broker orders` });
       continue;
     }
@@ -237,7 +239,10 @@ async function runCycle() {
     }
     let trade;
     try {
-      trade = await orderManager.openPosition(signal, size, stops);
+      // PAPER: simulated fill, never a broker order. Other modes: the demo broker path.
+      trade = mode.current() === 'PAPER'
+        ? await orderManager.openPaperPosition(signal, size, stops)
+        : await orderManager.openPosition(signal, size, stops);
     } catch (e) {
       // Do not retry this symbol every cycle; wait before the next attempt.
       orderCooldown[signal.symbol] = Date.now() + (limitsCfg.value('orderCooldownMinutes') * 60000);

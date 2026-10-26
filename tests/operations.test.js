@@ -8,6 +8,7 @@ const path = require('node:path');
 const tmp = name => path.join(os.tmpdir(), `ais-test-${process.pid}-${name}`);
 process.env.AIS_AUTH_FILE = tmp('auth.json');
 process.env.AIS_AUDIT_FILE = tmp('audit.log');
+process.env.AIS_MODE_FILE = tmp('operating_mode.json'); // the mode tests must never write the real mode file
 for (const f of [process.env.AIS_AUTH_FILE, process.env.AIS_AUDIT_FILE]) { try { fs.unlinkSync(f); } catch {} }
 
 const auth = require('../src/security/auth');
@@ -69,9 +70,11 @@ test('operating mode: the default is the existing behaviour and LIVE cannot be s
   await assert.rejects(mode.setMode('LIVE', { confirm: 'CONFIRM LIVE' }), /not available/);
 });
 
-test('operating mode: unbuilt modes are refused, not silently accepted', async () => {
-  await assert.rejects(mode.setMode('PAPER', {}), /not available/);
-  await assert.rejects(mode.setMode('DEMO_SUPERVISED', {}), /not available/);
+test('operating mode: PAPER is selectable (no orders), DEMO_SUPERVISED only through its session, LIVE refused', async () => {
+  await mode.setMode('PAPER', {});
+  assert.equal(mode.allowsBrokerOrders(), false);
+  await assert.rejects(mode.setMode('DEMO_SUPERVISED', {}), /use enableSupervised/);
+  await assert.rejects(mode.setMode('LIVE', {}), /not available/);
 });
 
 test('operating mode: order-placing modes need the exact confirmation phrase', async () => {
