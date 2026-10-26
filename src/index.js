@@ -331,6 +331,11 @@ app.post('/api/engine/entries/resume', async (req, res) => {
 });
 // Mark-to-market loss caps: owner reads and sets them; a latched cap is cleared only by an owner resume after reconciliation.
 app.get('/api/risk/mtm', async (req, res) => res.json(await require('./risk/mtmCaps').status()));
+// Data gate: how many unexplained missing candles inside the lookback are tolerated before a block (default 0).
+app.get('/api/data/gate', (req, res) => res.json({ gapTolerance: require('./data/quality').getGapTolerance() }));
+app.post('/api/data/gate', async (req, res) => {
+  try { res.json(await require('./data/quality').setGapTolerance((req.body || {}).gapTolerance, 'owner')); } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.post('/api/risk/mtm', async (req, res) => {
   try { res.json(await require('./risk/mtmCaps').setCaps(req.body || {}, 'owner')); } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -473,6 +478,7 @@ process.on('SIGTERM', requestShutdown);
   await prefs.init();
   await guardrails.init();
   await require('./engine/entryPause').init();
+  await require('./data/quality').initGate();
   await patternMiner.init();
   await mlModel.init();
   await limits.init();

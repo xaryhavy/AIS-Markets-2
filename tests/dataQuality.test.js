@@ -90,9 +90,12 @@ test('stale M1 data blocks analysis', () => {
   assert.ok(a.reasons.some(r => /M1: newest completed candle is \d+ min old/.test(r)));
 });
 
-test('a gap in the recent M1 candles blocks analysis', () => {
-  marketData.setBars('EURUSD', series('M1', 120, { gapAt: Math.floor(NOW / 60000) * 60000 - 5 * 60000 }), 'M1');
-  const a = q.assess('EURUSD', NOW);
+test('a gap in the recent M1 candles blocks analysis (weekday, market open)', () => {
+  // NOW is a Sunday, when FX is closed on schedule; a real gap must be checked on a weekday.
+  const WEEKDAY = Date.UTC(2026, 9, 27, 10, 0, 30);
+  const series2 = series('M1', 120, { endAt: WEEKDAY, gapAt: Math.floor(WEEKDAY / 60000) * 60000 - 5 * 60000 });
+  marketData.setBars('EURUSD', series2, 'M1');
+  const a = q.assess('EURUSD', WEEKDAY);
   assert.equal(a.ok, false);
   assert.ok(a.reasons.some(r => /gap/.test(r)));
 });

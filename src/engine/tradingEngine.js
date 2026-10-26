@@ -135,6 +135,8 @@ async function runCycle() {
   // 4. Scan all symbols with the adaptive ensemble
   // Data integrity is assessed before analysis; a symbol with bad or stale data is not analysed or traded.
   const assessments = Object.fromEntries(marketData.getSymbols().map(s => [s, dataQuality.assess(s)]));
+  // Each block episode is logged once with its reason codes (decision 3).
+  for (const a of Object.values(assessments)) dataQuality.recordEpisode(a).catch(() => {});
   const signals = await signalEngine.scanAll();
   stats.signalsScanned += signals.length;
   for (const s of signals) { stats.regimes[s.symbol] = s.regime; }
