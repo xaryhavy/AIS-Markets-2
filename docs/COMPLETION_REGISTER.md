@@ -128,3 +128,9 @@ Not ready for autonomous demo validation. Engineering partly complete (most of P
 - New defect: a SIGINT sent from the shell does not reach the server stop handler on this machine. The stop is not recorded as clean, so every stop forces a recovery review on the next start. Fix before relying on bounded runs: an owner-token stop route that records SHUTDOWN_REQUESTED, or another verified signal path. Not yet built.
 - Open decision: decision log growth from WAIT/NOT_QUALIFIED signals, which carry no frozen levels.
 - Live: not assessed; not enabled.
+
+## Owner decisions on the 11 blocked items - 2026-10-26
+Status by decision, with commits and open items: docs/DECISIONS_STATUS_2026-10-26.md.
+- Resolved: 1 (legacy archive applied to real data, with backup), 2 (MTM caps), 3 (data gate), 4 (entry pause), 7 (PAPER and DEMO_SUPERVISED), 11 (owner stop route, live-tested).
+- Partial: 5 (dashboard panel not built), 6 (built; NOT applied: checkpoint), 8 (built; buy-and-hold unavailable without history), 9 (Telegram built; email needs nodemailer), 10 (built; no pending-entry opportunities exist yet).
+- Suite: 280 pass, 0 fail. Commits on claude/ais-markets-ctrader-f6a11a, nothing pushed.

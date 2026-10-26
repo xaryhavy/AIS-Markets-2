@@ -60,3 +60,8 @@ Overall: **Not met.** Goals 1 to 3 are partly met. Goals 4 to 6 are partly met o
 
 ## Verdict against the mandate's levels
 **Not ready.** The highest level the evidence supports. "Engineering-complete, validation-incomplete" would need every buildable item done and the owner decisions made; the owner decisions are not made and the sustained validation has not been run.
+
+## Update - 2026-10-26: the 11 owner decisions
+Each decision is measured in docs/DECISIONS_STATUS_2026-10-26.md. In brief: 1, 2, 3, 4, 7 and 11 are resolved; 5, 6, 8, 9 and 10 are partial with the gaps stated there. Item 6 is built but not applied, pending the owner's checkpoint decision. The suite is at 280 passing tests.
+Goal 5 (learning on correctly classified evidence) moves forward: learning now uses broker-demo trades only, and legacy records are archived and tagged. The evaluation still has no exact broker-demo sample, so no strategy conclusion is drawn.
+Goal 7 (safe operation) moves forward: loss caps, entry pause, owner stop route and PAPER/supervised modes are built and tested; the stop route and readiness were checked live.
