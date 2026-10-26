@@ -47,6 +47,40 @@ function normalizeDecision(d) {
   return { ...d, legacy: false };
 }
 
+// INVALIDATED (decision 10). Applies only to opportunities with a pending entry trigger or an evidence expiry.
+//   - price breaches the invalidation level before the entry triggers  -> INVALIDATED, rule PRICE_BREACHED_BEFORE_ENTRY
+//   - the evidence expires before the entry triggers                   -> INVALIDATED, rule EVIDENCE_EXPIRED_BEFORE_ENTRY
+// A candle that both breaches the invalidation level and touches the entry is treated as invalidated (the order
+// within the candle is unknown; the conservative reading is used and recorded as SAME_CANDLE). Returns null when the
+// entry triggered first, or when there is nothing pending.
+function checkInvalidation(dec, candles, nowMs) {
+  if (!Number.isFinite(dec.entryTrigger)) return null;
+  const { action } = dec.levels;
+  const decisionMs = Date.parse(dec.timestamp);
+  const firstMs = (Math.floor(decisionMs / CANDLE_MS) + 1) * CANDLE_MS;
+  const expiryMs = dec.evidenceExpiresAt ? Date.parse(dec.evidenceExpiresAt) : null;
+  const list = candles.filter(c => c.time >= firstMs && c.time + CANDLE_MS <= nowMs).sort((a, b) => a.time - b.time);
+  for (const c of list) {
+    if (expiryMs !== null && c.time >= expiryMs) {
+      return { status: 'INVALIDATED', rule: 'EVIDENCE_EXPIRED_BEFORE_ENTRY', invalidatedAt: new Date(expiryMs).toISOString() };
+    }
+    const triggers = c.low <= dec.entryTrigger && dec.entryTrigger <= c.high;
+    const breached = Number.isFinite(dec.invalidationLevel)
+      && (action === 'BUY' ? c.low <= dec.invalidationLevel : c.high >= dec.invalidationLevel);
+    if (breached) {
+      return { status: 'INVALIDATED', rule: triggers ? 'PRICE_BREACHED_BEFORE_ENTRY (SAME_CANDLE)' : 'PRICE_BREACHED_BEFORE_ENTRY', invalidatedAt: new Date(c.time + CANDLE_MS).toISOString() };
+    }
+    if (triggers) return null;
+  }
+  return null;
+}
+
+// Pure. True when a completed candle after the decision touched the pending entry price.
+function entryTriggered(dec, candles, nowMs) {
+  const firstMs = (Math.floor(Date.parse(dec.timestamp) / CANDLE_MS) + 1) * CANDLE_MS;
+  return candles.some(c => c.time >= firstMs && c.time + CANDLE_MS <= nowMs && c.low <= dec.entryTrigger && dec.entryTrigger <= c.high);
+}
+
 // Pure: resolves one frozen hypothetical against completed candles.
 //   dec: { timestamp, levels: { action, entry, stopLoss, takeProfit }, horizonMinutes }
 //   candles: completed M1 candles (any order); nowMs: evaluation time
@@ -58,6 +92,13 @@ function resolveOutcome(dec, candles, nowMs) {
   const { action, stopLoss: sl, takeProfit: tp } = dec.levels;
   const decisionMs = Date.parse(dec.timestamp);
   const horizonEnd = decisionMs + (dec.horizonMinutes || HORIZON_MINUTES) * 60000;
+  const inv = checkInvalidation(dec, candles, nowMs);
+  if (inv) return inv;
+  if (Number.isFinite(dec.entryTrigger) && !entryTriggered(dec, candles, nowMs)) {
+    return nowMs < horizonEnd
+      ? { status: 'UNRESOLVED', note: 'entry not yet triggered' }
+      : { status: 'EXPIRED', note: 'entry never triggered within the horizon' };
+  }
   // First candle that began after the decision moment: never uses the candle the decision was made in.
   const firstMs = (Math.floor(decisionMs / CANDLE_MS) + 1) * CANDLE_MS;
   const list = candles.filter(c => c.time >= firstMs && c.time < horizonEnd && c.time + CANDLE_MS <= nowMs)
@@ -99,7 +140,7 @@ function wilson(k, n, z = 1.96) {
 function summarise(outcomes, key) {
   const groups = {};
   for (const o of outcomes) {
-    const g = (groups[o[key]] ||= { n: 0, TARGET_HIT: 0, STOP_HIT: 0, EXPIRED: 0, AMBIGUOUS: 0, MISSING_DATA: 0, NOT_EVALUABLE: 0 });
+    const g = (groups[o[key]] ||= { n: 0, TARGET_HIT: 0, STOP_HIT: 0, EXPIRED: 0, AMBIGUOUS: 0, MISSING_DATA: 0, NOT_EVALUABLE: 0, INVALIDATED: 0 });
     g.n++;
     if (g[o.status] !== undefined) g[o.status]++;
   }
@@ -112,7 +153,8 @@ function summarise(outcomes, key) {
       else if (ci.high < 0.5) flag = 'appropriately protective: rejected setups reached stop more often than target';
       else flag = 'no clear difference from 50%';
     }
-    return [name, { ...g, decisive, targetRate: ci.rate, targetRateLow95: ci.low, targetRateHigh95: ci.high, flag, label: 'HYPOTHETICAL' }];
+    // INVALIDATED is reported as a count and rate, and is never part of win, loss or decisive counts.
+    return [name, { ...g, decisive, targetRate: ci.rate, targetRateLow95: ci.low, targetRateHigh95: ci.high, invalidatedRate: g.n ? Math.round(g.INVALIDATED / g.n * 1000) / 1000 : null, flag, label: 'HYPOTHETICAL' }];
   }));
 }
 
@@ -167,6 +209,6 @@ async function runMonitor(nowMs = Date.now()) {
 }
 
 module.exports = {
-  reasonCode, stateFor, normalizeDecision, resolveOutcome, wilson, summarise, frozenLevels, runMonitor,
+  reasonCode, stateFor, normalizeDecision, resolveOutcome, checkInvalidation, wilson, summarise, frozenLevels, runMonitor,
   HORIZON_MINUTES, MIN_DECISIVE_FOR_REVIEW
 };
