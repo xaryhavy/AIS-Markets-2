@@ -51,6 +51,14 @@ async function tripOnFailures(consecutiveFailures) {
   return true;
 }
 
+// Pauses entries for a stated reason (used by the owner shutdown). Resuming still goes through resume().
+async function pauseEntries(reason) {
+  state = { ...state, active: true, reason, since: new Date().toISOString(), resumedAt: null };
+  await save();
+  audit.record('ENTRIES_PAUSED', { reason });
+  return status();
+}
+
 // Owner action. Refused unless the last broker reconciliation succeeded.
 async function resume({ reconcileOk, actor = 'owner' }) {
   if (!state.active) return { resumed: false, reason: 'entries are not paused' };
@@ -68,4 +76,4 @@ async function setThreshold(n) {
   return status();
 }
 
-module.exports = { init, status, tripOnFailures, resume, setThreshold, validThreshold, DEFAULT_THRESHOLD, MIN_THRESHOLD, MAX_THRESHOLD };
+module.exports = { init, status, tripOnFailures, pauseEntries, resume, setThreshold, validThreshold, DEFAULT_THRESHOLD, MIN_THRESHOLD, MAX_THRESHOLD };

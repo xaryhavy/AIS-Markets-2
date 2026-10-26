@@ -329,6 +329,20 @@ app.post('/api/engine/entries/resume', async (req, res) => {
   const r = await require('./engine/entryPause').resume({ reconcileOk: engineHealth.reconcileStatus().lastReconcileOk === true, actor: 'owner' });
   res.status(r.resumed ? 200 : 409).json(r);
 });
+// Owner shutdown: disables all new entries at once and records who, when, why and the system state. Positions are not closed.
+app.get('/api/system/shutdown', async (req, res) => res.json({ active: await require('./governance/shutdown').current() }));
+app.post('/api/system/shutdown', async (req, res) => {
+  const rs = engineHealth.reconcileStatus();
+  const snapshot = { at: new Date().toISOString(), brokerState: ctraderConn.getStatus().state, feedReady: require('./ctrader/marketFeed').isReady(), unresolved: rs.unresolved, unmanaged: rs.unmanaged, cycles: engineHealth.getStats().cycles };
+  try {
+    const r = await require('./governance/shutdown').request({ actor: 'owner', reason: (req.body || {}).reason, snapshot });
+    res.status(r.alreadyActive ? 200 : 201).json(r);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/system/shutdown/resume', async (req, res) => {
+  const r = await require('./governance/shutdown').resume({ actor: 'owner', reconcileOk: engineHealth.reconcileStatus().lastReconcileOk === true });
+  res.status(r.resumed ? 200 : 409).json(r);
+});
 app.post('/api/guardrails/acknowledge', async (req, res) => {
   const r = await guardrails.acknowledgeFence();
   audit.record('RECOVERY_ACKNOWLEDGED', {});

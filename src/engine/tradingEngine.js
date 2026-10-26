@@ -19,6 +19,7 @@ const storage = require('../data/storage');
 const safety = require('../execution/safety');
 const dataQuality = require('../data/quality');
 const entryPause = require('./entryPause');
+const shutdownRecords = require('../governance/shutdown');
 
 let engineInterval = null;
 let monitorInterval = null;
@@ -57,6 +58,8 @@ async function syncOps() {
   const failing = cycleFailureCondition(consecutiveCycleFailures);
   if (failing) conditions.push(failing);
   if (entryPause.status().active) conditions.push({ code: 'ENTRIES_PAUSED', severity: 'high', message: entryPause.status().reason });
+  const ownerShutdown = await shutdownRecords.current();
+  if (ownerShutdown) conditions.push({ code: 'OWNER_SHUTDOWN', severity: 'critical', message: `owner shutdown active since ${ownerShutdown.requestedAt}: ${ownerShutdown.reason}` });
   if (lastRec.unresolved.length) conditions.push({ code: 'UNRESOLVED_ORDER', severity: 'critical', message: `${lastRec.unresolved.length} order outcome(s) not confirmed by the broker` });
   if (lastRec.unmanaged.length) conditions.push({ code: 'UNMANAGED_POSITION', severity: 'critical', message: `${lastRec.unmanaged.length} broker position(s) with no local record` });
   if (lastRec.reconcileFailed) conditions.push({ code: 'RECONCILE_FAILED', severity: 'high', message: 'broker reconciliation failed in the last cycle' });

@@ -5,7 +5,7 @@ const fs = require('fs-extra');
 const path = require('path');
 
 const CONFIG_FILE = path.join(__dirname, '../../data/risk_config.json');
-const EMERGENCY_FILE = path.join(__dirname, '../../data/emergency_stop.json');
+const EMERGENCY_FILE = process.env.AIS_EMERGENCY_FILE || path.join(__dirname, '../../data/emergency_stop.json'); // env override is for tests
 const EQUITY_FILE = path.join(__dirname, '../../data/equity_history.json');
 const EQUITY_MIN_INTERVAL_MS = 5 * 60 * 1000;
 const EQUITY_MAX_POINTS = 20000;
