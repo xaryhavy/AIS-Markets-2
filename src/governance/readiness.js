@@ -17,7 +17,7 @@ function readiness(s) {
     if (!s.allowsOrders) reasons.push(`mode ${s.mode} does not place broker orders`);
     if (s.emergencyOn) reasons.push('emergency stop is on');
     if (s.fenceActive) reasons.push('recovery review required after an unclean shutdown');
-    if (s.entriesPaused) reasons.push('new entries paused after repeated engine cycle failures (owner resume needed)');
+    if (s.entriesPaused) reasons.push(s.entriesPausedReason ? `new entries paused: ${s.entriesPausedReason}` : 'new entries paused (owner resume needed)');
     if (!s.tradingEnabled) reasons.push('automatic trading switched off by owner');
     if (s.brokerState !== 'ACCOUNT_AUTHENTICATED') reasons.push(`broker state ${s.brokerState}`);
     if (!s.feedReady) reasons.push('live price feed not ready');

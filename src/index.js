@@ -477,7 +477,8 @@ app.get('/api/readiness', async (req, res) => {
     feedReady: require('./ctrader/marketFeed').isReady(),
     unresolved: rs.unresolved,
     unmanaged: rs.unmanaged,
-    entriesPaused: require('./engine/entryPause').status().active
+    entriesPaused: require('./engine/entryPause').status().active,
+    entriesPausedReason: require('./engine/entryPause').status().reason
   }));
 });
 
