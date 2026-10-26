@@ -21,6 +21,7 @@ const dataQuality = require('../data/quality');
 const entryPause = require('./entryPause');
 const shutdownRecords = require('../governance/shutdown');
 const mtmCaps = require('../risk/mtmCaps');
+const { ENGINE_MAX_AGE_MS } = require('../governance/readiness');
 const unmanaged = require('../execution/unmanaged');
 
 let engineInterval = null;
@@ -48,6 +49,7 @@ function buildFeatures(signal, trends) {
 // Consecutive failed cycles before the owner is alerted. Each failure is logged; the alert is what makes it visible.
 const CYCLE_FAILURE_ALERT = 3;
 let consecutiveCycleFailures = 0;
+let lastAssessments = {};
 
 // Pure. The alert condition for a run of failed cycles, or null.
 function cycleFailureCondition(n) {
@@ -60,6 +62,13 @@ async function syncOps() {
   const failing = cycleFailureCondition(consecutiveCycleFailures);
   if (failing) conditions.push(failing);
   if (entryPause.status().active) conditions.push({ code: 'ENTRIES_PAUSED', severity: 'high', message: entryPause.status().reason });
+  // Stale data, protection failures and a stalled engine (decision 9 alert set).
+  const stale = Object.values(lastAssessments).filter(a => a.reasonCodes && a.reasonCodes.includes('DATA_STALE')).map(a => a.symbol);
+  if (stale.length) conditions.push({ code: 'STALE_DATA', severity: 'high', message: `stale market data: ${stale.join(', ')}; new entries blocked for these instruments` });
+  const protectionFailed = (await storage.load(trading.INTENTS)).filter(i => i.status === 'PROTECTION_FAILED');
+  if (protectionFailed.length) conditions.push({ code: 'PROTECTION_FAILED', severity: 'critical', message: `${protectionFailed.length} position(s) without verified protection; emergency policy applies` });
+  const age = engineAgeMs();
+  if (age !== null && age > ENGINE_MAX_AGE_MS) conditions.push({ code: 'ENGINE_STALLED', severity: 'high', message: `engine has not completed a cycle for ${Math.round(age / 1000)} s` });
   const capStatus = await mtmCaps.status();
   if (capStatus.tripped) conditions.push({ code: 'RISK_CAP_HIT', severity: 'critical', message: capStatus.reason });
   const ownerShutdown = await shutdownRecords.current();
@@ -142,6 +151,7 @@ async function runCycle() {
   // 4. Scan all symbols with the adaptive ensemble
   // Data integrity is assessed before analysis; a symbol with bad or stale data is not analysed or traded.
   const assessments = Object.fromEntries(marketData.getSymbols().map(s => [s, dataQuality.assess(s)]));
+  lastAssessments = assessments;
   // Each block episode is logged once with its reason codes (decision 3).
   for (const a of Object.values(assessments)) dataQuality.recordEpisode(a).catch(() => {});
   const signals = await signalEngine.scanAll();
@@ -273,7 +283,8 @@ function start(intervalMs = 5000) {
   safeCycle();
   engineInterval = setInterval(safeCycle, intervalMs);
   // NO-TRADE outcomes resolve on their own clock, so they keep resolving while trading is paused.
-  const safeMonitor = () => noTrade.runMonitor().catch(e => console.log(`[ENGINE] no-trade monitor error: ${e.message}`));
+  // The monitor timer also refreshes alerts, so a stalled engine (no cycles running) is still reported.
+  const safeMonitor = () => syncOps().catch(() => {}).then(() => noTrade.runMonitor()).catch(e => console.log(`[ENGINE] no-trade monitor error: ${e.message}`));
   monitorInterval = setInterval(safeMonitor, 60000);
 }
 function stop() {

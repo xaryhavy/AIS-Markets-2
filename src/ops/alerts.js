@@ -3,6 +3,7 @@
 const fs = require('fs-extra');
 const path = require('path');
 const audit = require('../audit/audit');
+const notify = require('./notify');
 
 const ALERTS_FILE = path.join(__dirname, '../../data/alerts.json');
 const SEVERITIES = ['critical', 'high', 'medium', 'info'];
@@ -32,6 +33,7 @@ async function sync(conditions, nowIso = new Date().toISOString()) {
   for (const w of opened) {
     open[w.code] = { code: w.code, severity: w.severity, message: w.message, since: nowIso };
     audit.record('ALERT_OPENED', { code: w.code, severity: w.severity, message: w.message });
+    notify.onOpened(open[w.code]).catch(() => {}); // never blocks or breaks the engine
   }
   for (const w of updated) {
     open[w.code] = { ...open[w.code], message: w.message };
@@ -39,6 +41,7 @@ async function sync(conditions, nowIso = new Date().toISOString()) {
   for (const r of resolved) {
     delete open[r.code];
     audit.record('ALERT_RESOLVED', { code: r.code, since: r.since });
+    notify.onResolved(r.code);
   }
   if (opened.length || resolved.length || updated.length) {
     await fs.ensureDir(path.dirname(ALERTS_FILE));
