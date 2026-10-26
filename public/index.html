@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AIS Markets — Autonomous Trading System</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<style>
+*{box-sizing:border-box;font-family:-apple-system,sans-serif;margin:0;padding:0;}
+body{max-width:1100px;margin:2rem auto;padding:0 1rem;background:#f8f9fa;color:#1a1a1a;}
+h1{font-size:1.6rem;margin-bottom:1.5rem;}
+h2{font-size:1.1rem;margin-bottom:0.8rem;color:#333;}
+.card{background:#fff;border-radius:12px;padding:1.5rem;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:1.5rem;}
+.status-btn{padding:1rem;font-size:1.1rem;border:none;border-radius:8px;cursor:pointer;font-weight:600;width:100%;}
+.status-on{background:#e6f9e9;color:#0f7c2f;}
+.status-off{background:#ffebee;color:#c62828;}
+.checkbox-row{margin:1rem 0;display:flex;align-items:center;gap:.6rem;cursor:pointer;}
+.instruction{color:#555;font-size:.9rem;margin-top:.5rem;line-height:1.5;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;}
+.stat{background:#f8f9fa;border-radius:8px;padding:1rem;text-align:center;}
+.stat .val{font-size:1.4rem;font-weight:700;}
+.stat .lbl{font-size:.75rem;color:#666;margin-top:.3rem;}
+table{width:100%;border-collapse:collapse;font-size:.82rem;}
+th,td{padding:.45rem;text-align:left;border-bottom:1px solid #eee;}
+th{color:#666;font-weight:600;}
+.badge{padding:.15rem .5rem;border-radius:10px;font-size:.7rem;font-weight:600;}
+.badge-buy{background:#e6f9e9;color:#0f7c2f;}
+.badge-sell{background:#ffebee;color:#c62828;}
+.badge-open{background:#e3f2fd;color:#1565c0;}
+.badge-closed{background:#f5f5f5;color:#666;}
+.badge-hold{background:#f5f5f5;color:#999;}
+.regime{padding:.15rem .5rem;border-radius:10px;font-size:.7rem;font-weight:600;}
+.regime-TRENDING_UP{background:#e6f9e9;color:#0f7c2f;}
+.regime-TRENDING_DOWN{background:#ffebee;color:#c62828;}
+.regime-RANGING{background:#fff3cd;color:#856404;}
+.regime-VOLATILE{background:#f3e5f5;color:#7b1fa2;}
+.live-lock{background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:.8rem;margin-top:1rem;font-size:.85rem;color:#856404;}
+button.secondary{padding:.5rem 1rem;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;font-size:.85rem;margin-right:.5rem;}
+button.secondary:hover{background:#f5f5f5;}
+button.primary{padding:.5rem 1rem;border:none;border-radius:6px;background:#0f7c2f;color:#fff;cursor:pointer;font-size:.85rem;font-weight:600;margin-right:.5rem;}
+button.primary:hover{background:#0a5c22;}
+button:disabled{opacity:0.5;cursor:not-allowed;}
+pre{background:#f8f9fa;padding:1rem;border-radius:8px;font-size:.75rem;overflow-x:auto;max-height:300px;overflow-y:auto;margin-top:.5rem;}
+.cb{background:#ffebee;color:#c62828;padding:.3rem .6rem;border-radius:6px;font-size:.8rem;font-weight:600;display:inline-block;}
+.conn-status{padding:.5rem .8rem;border-radius:6px;font-size:.85rem;font-weight:600;display:inline-block;}
+.conn-connected{background:#e6f9e9;color:#0f7c2f;}
+.conn-disconnected{background:#fff3cd;color:#856404;}
+.conn-error{background:#ffebee;color:#c62828;}
+.conn-connecting{background:#e3f2fd;color:#1565c0;}
+.grade{padding:.15rem .5rem;border-radius:10px;font-size:.7rem;font-weight:700;}
+.grade-A{background:#0f7c2f;color:#fff;}
+.grade-B{background:#43a047;color:#fff;}
+.grade-C{background:#fb8c00;color:#fff;}
+.grade-D{background:#e53935;color:#fff;}
+.pattern-tag{background:#e8eaf6;padding:.15rem .4rem;border-radius:4px;font-size:.65rem;margin:1px;display:inline-block;}
+.zone-tag{padding:.15rem .4rem;border-radius:4px;font-size:.65rem;margin:1px;display:inline-block;font-weight:600;}
+.zone-demand{background:#e6f9e9;color:#0f7c2f;}
+.zone-supply{background:#ffebee;color:#c62828;}
+.forecast-up{color:#0f7c2f;font-weight:700;}
+.forecast-down{color:#c62828;font-weight:700;}
+.forecast-neutral{color:#999;}
+.chart{width:100%;height:320px;}
+.analytics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1rem;margin-bottom:1rem;}
+.setup-link{font-size:.9rem;font-weight:700;color:#0f7c2f;text-decoration:underline;margin-left:.5rem;}
+</style>
+</head>
+<body>
+<h1>AIS Markets — Autonomous Trading System</h1>
+
+<div class="card">
+  <button id="statusButton" class="status-btn" onclick="toggleTrading()"></button>
+  <label class="checkbox-row"><input type="checkbox" id="autoStartCheck"> Start automatic trading when this account reconnects or AIS restarts</label>
+  <p class="instruction">Turn ON to let AIS place qualifying trades automatically in the selected environment. Turn OFF to stop new entries. Existing positions retain broker stops and targets.</p>
+  <div class="live-lock" id="liveLock">🔒 Live trading is LOCKED. Demo mode active. <button class="secondary" onclick="approveLive()">Request Live Approval</button></div>
+  <div id="circuitBreaker" style="margin-top:.5rem;display:none;"><span class="cb">⚠️ CIRCUIT BREAKER ACTIVE — position sizes reduced 50%</span></div>
+</div>
+
+<div class="card">
+  <h2>cTrader Connection</h2>
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+    <span id="connStatus" class="conn-status conn-disconnected">Checking...</span>
+    <span id="connMessage" style="font-size:.85rem;color:#666;"></span>
+    <a href="/setup.html" id="setupLink" class="setup-link" style="display:none;">→ Click here to complete cTrader Setup</a>
+    <div style="margin-left:auto;display:flex;gap:.5rem;">
+      <button class="primary" onclick="openCtrader()">📈 Open cTrader</button>
+      <button class="secondary" id="reconnectBtn" onclick="reconnectCtrader()">🔄 Reconnect</button>
+      <button class="secondary" id="disconnectBtn" onclick="disconnectCtrader()">⏸ Disconnect</button>
+      <button class="secondary" onclick="logoutCtrader()">🚪 Logout</button>
+    </div>
+  </div>
+  <p class="instruction" style="margin-top:.8rem;">Setup page always available at <a href="/setup.html" style="color:#0f7c2f;font-weight:600;">/setup.html</a> — The API connection and the cTrader graphical interface are separate sessions.</p>
+</div>
+
+<div class="card">
+  <h2>Safety &amp; Proposed Patterns</h2>
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+    <span id="guardStatus" class="conn-status conn-disconnected">Checking...</span>
+    <span id="guardMessage" style="font-size:.85rem;color:#666;"></span>
+    <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap;">
+      <button class="secondary" id="ackBtn" onclick="acknowledgeFence()" style="display:none;">✅ Acknowledge restart review</button>
+      <button class="secondary" onclick="runLiveBacktest()">🧪 Backtest on live bars</button>
+      <button class="secondary" onclick="minePatterns()">🔎 Find recurring patterns</button>
+    </div>
+  </div>
+  <div id="proposalsList" style="margin-top:.8rem;"></div>
+  <p class="instruction" style="margin-top:.8rem;">Proposed patterns change nothing until you approve them. Approved patterns only move matching signals to the front of the queue.</p>
+</div>
+
+<div class="card">
+  <h2>System Stats</h2>
+  <div class="grid" id="statsGrid">
+    <div class="stat"><div class="val" id="statCycles">—</div><div class="lbl">Engine Cycles</div></div>
+    <div class="stat"><div class="val" id="statTrades">—</div><div class="lbl">Trades Executed</div></div>
+    <div class="stat"><div class="val" id="statSignals">—</div><div class="lbl">Signals Scanned</div></div>
+    <div class="stat"><div class="val" id="statPositions">—</div><div class="lbl">Open Positions</div></div>
+    <div class="stat"><div class="val" id="statAdaptiveTrades">—</div><div class="lbl">Learned From</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>📊 Performance Analytics</h2>
+  <div class="analytics-grid" id="analyticsStats"></div>
+  <div id="equityChart" class="chart"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem;">
+    <div id="strategyChart" class="chart" style="height:280px;"></div>
+    <div id="symbolChart" class="chart" style="height:280px;"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Market Regime Detection (AI Adaptive)</h2>
+  <div class="grid" id="regimesGrid"></div>
+</div>
+
+<div class="card">
+  <h2>Live Signals — 9-Strategy Ensemble + AI Forecast</h2>
+  <table>
+    <thead><tr><th>Symbol</th><th>Regime</th><th>Signal</th><th>Score</th><th>AI Forecast</th><th>Confidence</th><th>Patterns</th><th>Confluence</th><th>Reason</th></tr></thead>
+    <tbody id="signalsBody"></tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Supply & Demand Zones (Institutional Levels)</h2>
+  <div id="zonesGrid" class="grid"></div>
+</div>
+
+<div class="card">
+  <h2>Adaptive Strategy Performance (Learned Weights)</h2>
+  <div id="adaptiveWeights"><p style="color:#999;font-size:.85rem;">Learning from trades... weights appear after 3+ closed trades per strategy.</p></div>
+</div>
+
+<div class="card">
+  <h2>Intelligence Tools</h2>
+  <button class="secondary" onclick="runBacktestAll()">📊 Backtest All Strategies</button>
+  <button class="secondary" onclick="runOptimizeAll()">⚙️ Optimize Parameters (Grid Search)</button>
+  <button class="secondary" onclick="generateReports()">📄 Generate Reports</button>
+  <pre id="intelOutput" style="display:none;"></pre>
+</div>
+
+<div class="card">
+  <h2>Open Positions</h2>
+  <table><thead><tr><th>Symbol</th><th>Action</th><th>Size</th><th>Entry</th><th>Stop Loss</th><th>Take Profit</th><th>Status</th></tr></thead><tbody id="positionsBody"></tbody></table>
+</div>
+
+<div class="card">
+  <h2>Recent Trades</h2>
+  <table><thead><tr><th>Symbol</th><th>Action</th><th>Entry</th><th>Exit</th><th>PnL</th><th>Status</th><th>Reason</th></tr></thead><tbody id="tradesBody"></tbody></table>
+</div>
+
+<div class="card">
+  <h2>Shadow Tracking — Every Decision Logged</h2>
+  <table><thead><tr><th>Time</th><th>Symbol</th><th>Signal</th><th>Decision</th><th>Reason</th><th>Shadow Outcome</th></tr></thead><tbody id="decisionsBody"></tbody></table>
+</div>
+
+<script>
+// Owner token: sent with every API call. If the server rejects it (or none is saved), ask once and keep it for this tab.
+(function(){
+  const realFetch = window.fetch.bind(window);
+  async function withToken(url, opts = {}) {
+    const isApi = String(url).startsWith('/api/') && !String(url).startsWith('/api/health');
+    if (!isApi) return realFetch(url, opts);
+    const send = t => realFetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-Owner-Token': t || '' } });
+    let token = sessionStorage.getItem('aisOwnerToken');
+    let res = await send(token);
+    if (res.status === 401) {
+      const entered = prompt('Enter the owner token (shown once in the server console at first start):');
+      if (entered) { sessionStorage.setItem('aisOwnerToken', entered.trim()); res = await send(entered.trim()); }
+    }
+    return res;
+  }
+  window.fetch = withToken;
+})();
+</script>
+<script>
+
+let equityChart, strategyChart, symbolChart;
+
+async function loadPrefs(){
+  const p=await(await fetch('/api/preferences')).json();
+  const btn=document.getElementById('statusButton');
+  btn.textContent=p.tradingEnabled?'Automatic demo trading: ON':'Automatic demo trading: OFF';
+  btn.className='status-btn '+(p.tradingEnabled?'status-on':'status-off');
+  document.getElementById('autoStartCheck').checked=p.autoStartTrading;
+  document.getElementById('liveLock').style.display=p.liveTradingApproved?'none':'block';
+}
+async function toggleTrading(){
+  const p=await(await fetch('/api/preferences')).json();
+  await fetch('/api/preferences',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tradingEnabled:!p.tradingEnabled})});
+  await loadPrefs();
+}
+document.getElementById('autoStartCheck').addEventListener('change',async e=>{
+  await fetch('/api/preferences',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({autoStartTrading:e.target.checked})});
+});
+async function approveLive(){ if(confirm('Enable LIVE trading?')){await fetch('/api/live/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approved:true})});await loadPrefs();} }
+async function generateReports(){ await fetch('/api/reports/generate',{method:'POST'}); alert('Reports generated in data/reports/'); }
+async function runBacktestAll(){
+  const out=document.getElementById('intelOutput');
+  out.style.display='block';out.textContent='Running backtests...';
+  try{
+    const r=await(await fetch('/api/backtest/run',{method:'POST'})).json();
+    out.textContent='BACKTEST RESULTS (sorted by Sharpe):\n\n'+r.map(x=>`${x.strategy}: Return ${x.totalReturnPct}% | Win ${x.winRate}% | PF ${x.profitFactor} | MaxDD ${x.maxDrawdownPct}% | Sharpe ${x.sharpeRatio} | Trades ${x.totalTrades}`).join('\n');
+  }catch(e){ out.textContent='Error: '+e.message; }
+}
+async function runOptimizeAll(){
+  const out=document.getElementById('intelOutput');
+  out.style.display='block';out.textContent='Optimizing all strategies (grid search)...';
+  try{
+    const r=await(await fetch('/api/optimize/run',{method:'POST'})).json();
+    out.textContent='OPTIMIZED PARAMETERS (best per strategy):\n\n'+Object.entries(r).map(([k,v])=>v?`${k}: Sharpe ${v.sharpeRatio} | Return ${v.totalReturnPct}% | Params ${JSON.stringify(v.params)}`:`${k}: no result`).join('\n');
+  }catch(e){ out.textContent='Error: '+e.message; }
+}
+
+// ============ CTRADER CONNECTION ============
+async function refreshCtraderStatus(){
+  try{
+    const s=await(await fetch('/api/ctrader/status')).json();
+    const el=document.getElementById('connStatus');
+    const msg=document.getElementById('connMessage');
+    const link=document.getElementById('setupLink');
+    // Authorization needed: send the owner straight to setup (once per tab, so it cannot loop).
+    if(s.needsAuth && !sessionStorage.getItem('aisCtraderAutoAuthTried')){ location.href='/setup.html'; return; }
+    if(s.autoConnect===false && s.state!=='ACCOUNT_AUTHENTICATED'){el.className='conn-status conn-disconnected';el.textContent='○ Disconnected by owner';msg.textContent='Press Reconnect to resume the cTrader connection.';link.style.display='none';return;}
+    if(s.state==='ACCOUNT_AUTHENTICATED'){el.className='conn-status conn-connected';el.textContent='● Connected to cTrader';msg.textContent=(s.balance!=null?'Balance: '+s.balance.toFixed(2)+' · ':'')+(s.liveFeed?'live prices':'waiting for prices');link.style.display='none';}
+    else if(s.state==='CONNECTING'){el.className='conn-status conn-connecting';el.textContent='◌ Connecting...';msg.textContent='';link.style.display='none';}
+    else if(s.state==='APP_AUTHENTICATED'){el.className='conn-status conn-connecting';el.textContent='◌ App authenticated — selecting account';msg.textContent='';link.style.display='none';}
+    else if(s.state==='ERROR'){el.className='conn-status conn-error';el.textContent='✕ Connection Error';msg.textContent=s.lastError||'';link.style.display='inline';}
+    else{el.className='conn-status conn-disconnected';el.textContent='○ Not connected';msg.textContent='';link.style.display='inline';}
+  }catch(e){
+    document.getElementById('connStatus').className='conn-status conn-disconnected';
+    document.getElementById('connStatus').textContent='○ Status unavailable';
+    document.getElementById('setupLink').style.display='inline';
+  }
+}
+function openCtrader(){ window.open('https://ctrader.com/','_blank'); }
+async function reconnectCtrader(){
+  const btn=document.getElementById('reconnectBtn');
+  const original=btn.textContent;
+  btn.textContent='◌ Connecting...';
+  btn.disabled=true;
+  try{
+    const r=await(await fetch('/api/ctrader/connect',{method:'POST'})).json();
+    if(r.needsAuth){ alert('Not authorized yet — click the setup link to complete cTrader authorization first.'); }
+    else if(r.state==='ACCOUNT_AUTHENTICATED'){ alert('✅ Connected successfully!'); }
+    else if(r.reconnecting){ alert('Connection issue: '+r.message+' — will retry automatically.'); }
+    else { alert('Status: '+r.state+' — '+r.message); }
+  }catch(e){ alert('Connection error: '+e.message); }
+  btn.textContent=original;
+  btn.disabled=false;
+  refreshCtraderStatus();
+}
+async function disconnectCtrader(){
+  await fetch('/api/ctrader/disconnect',{method:'POST'});
+  refreshCtraderStatus();
+}
+async function logoutCtrader(){
+  if(confirm('Logout and clear cTrader tokens? You will need to reauthorize.')){
+    await fetch('/api/ctrader/logout',{method:'POST'});
+    location.reload();
+  }
+}
+
+// ============ PERFORMANCE ANALYTICS ============
+async function loadAnalytics(){
+  try{
+    const a=await(await fetch('/api/analytics')).json();
+    document.getElementById('analyticsStats').innerHTML=`
+      <div class="stat"><div class="val" style="color:${a.totalPnl>=0?'#0f7c2f':'#c62828'}">$${a.totalPnl}</div><div class="lbl">Total PnL</div></div>
+      <div class="stat"><div class="val">$${a.finalEquity}</div><div class="lbl">Equity</div></div>
+      <div class="stat"><div class="val">${a.winRate}%</div><div class="lbl">Win Rate</div></div>
+      <div class="stat"><div class="val">${a.profitFactor}</div><div class="lbl">Profit Factor</div></div>
+      <div class="stat"><div class="val" style="color:#c62828;">-${a.maxDrawdown}%</div><div class="lbl">Max Drawdown</div></div>
+      <div class="stat"><div class="val">${a.totalTrades}</div><div class="lbl">Closed Trades</div></div>`;
+    if(!equityChart)equityChart=echarts.init(document.getElementById('equityChart'));
+    equityChart.setOption({title:{text:'Equity Curve',left:'center',textStyle:{fontSize:14}},tooltip:{trigger:'axis'},grid:{left:60,right:20,top:40,bottom:30},xAxis:{type:'category',data:a.equityCurve.map(p=>p.time),name:'Trade #'},yAxis:{type:'value',name:'Equity ($)'},series:[{name:'Equity',type:'line',data:a.equityCurve.map(p=>p.equity),smooth:true,areaStyle:{opacity:0.3},itemStyle:{color:'#0f7c2f'}}]});
+    if(!strategyChart)strategyChart=echarts.init(document.getElementById('strategyChart'));
+    strategyChart.setOption({title:{text:'PnL by Strategy',left:'center',textStyle:{fontSize:13}},tooltip:{},grid:{left:130,right:20,top:30,bottom:30},xAxis:{type:'value'},yAxis:{type:'category',data:a.byStrategy.map(s=>s.strategy)},series:[{type:'bar',data:a.byStrategy.map(s=>({value:s.pnl,itemStyle:{color:s.pnl>=0?'#0f7c2f':'#c62828'}}))}]});
+    if(!symbolChart)symbolChart=echarts.init(document.getElementById('symbolChart'));
+    symbolChart.setOption({title:{text:'PnL by Symbol',left:'center',textStyle:{fontSize:13}},tooltip:{},series:[{type:'pie',radius:['40%','70%'],data:a.bySymbol.map(s=>({name:s.symbol,value:s.pnl})),label:{formatter:'{b}: ${c}'}}]});
+  }catch(e){}
+}
+
+// ============ CANDLESTICK PATTERNS & ZONES ============
+async function loadPatternsAndZones(symbols){
+  const zonesGrid=document.getElementById('zonesGrid');
+  let zonesHtml='';
+  for(const s of symbols){
+    try{
+      const z=await(await fetch('/api/zones/'+s)).json();
+      const demand=(z.zones.demand||[]).slice(0,2);
+      const supply=(z.zones.supply||[]).slice(0,2);
+      zonesHtml+=`<div class="stat"><div class="lbl" style="font-weight:700;font-size:.9rem;margin-bottom:.4rem;">${s}</div>`;
+      if(demand.length)demand.forEach(d=>{zonesHtml+=`<span class="zone-tag zone-demand">DEMAND ${d.upper.toFixed(5)}–${d.lower.toFixed(5)} (fresh ${d.freshness}%)</span><br>`;});
+      if(supply.length)supply.forEach(d=>{zonesHtml+=`<span class="zone-tag zone-supply">SUPPLY ${d.upper.toFixed(5)}–${d.lower.toFixed(5)} (fresh ${d.freshness}%)</span><br>`;});
+      if(!demand.length&&!supply.length)zonesHtml+='<span style="font-size:.7rem;color:#999;">No zones detected</span>';
+      zonesHtml+='</div>';
+    }catch(e){}
+  }
+  zonesGrid.innerHTML=zonesHtml||'<div style="color:#999;">No zones</div>';
+}
+
+async function refreshData(){
+  const status=await(await fetch('/api/status')).json();
+  document.getElementById('statCycles').textContent=status.engineStats.cycles;
+  document.getElementById('statTrades').textContent=status.engineStats.tradesExecuted;
+  document.getElementById('statSignals').textContent=status.engineStats.signalsScanned;
+  const prices=await(await fetch('/api/prices')).json();
+  const regimes=await(await fetch('/api/regimes')).json();
+  const symbols=Object.keys(prices);
+  document.getElementById('regimesGrid').innerHTML=symbols.map(s=>{
+    const p=prices[s];const r=regimes[s]||{regime:'RANGING',confidence:0};
+    return `<div class="stat"><div class="val">${p.toFixed(s.includes('JPY')?3:s.includes('BTC')?0:s.includes('XAU')?2:5)}</div><div class="lbl">${s}</div><div style="margin-top:.4rem;"><span class="regime regime-${r.regime}">${r.regime}</span><div style="font-size:.65rem;color:#999;margin-top:.2rem;">conf ${Math.round(r.confidence*100)}%</div></div></div>`;
+  }).join('');
+  const signals=await(await fetch('/api/signals')).json();
+  const forecasts={};
+  for(const s of symbols){try{const f=await(await fetch('/api/forecast/'+s)).json();forecasts[s]=f;}catch(e){}}
+  document.getElementById('signalsBody').innerHTML=signals.map(s=>{
+    const pats=(s.detectedPatterns||[]).slice(0,2).map(p=>`<span class="pattern-tag">${p.pattern}</span>`).join(' ')||'<span style="color:#999;font-size:.7rem;">none</span>';
+    const confGrade=s.strategySignals?.find(x=>x.confluenceGrade)?.confluenceGrade||'—';
+    const f=forecasts[s.symbol];
+    const fc=f?`<span class="forecast-${f.direction==='UP'?'up':f.direction==='DOWN'?'down':'neutral'}">${f.direction} ${Math.round(f.probability*100)}%</span>`:'—';
+    const fconf=f?`${f.confidence}%`:'—';
+    return `<tr><td>${s.symbol}</td><td><span class="regime regime-${s.regime}">${s.regime}</span></td><td><span class="badge badge-${s.action.toLowerCase()}">${s.action}</span></td><td>${s.score}</td><td>${fc}</td><td>${fconf}</td><td>${pats}</td><td><span class="grade grade-${confGrade}">${confGrade}</span></td><td style="font-size:.7rem;color:#666;">${s.reason}</td></tr>`;
+  }).join('');
+  loadPatternsAndZones(symbols);
+  const adaptive=await(await fetch('/api/adaptive/stats')).json();
+  document.getElementById('statAdaptiveTrades').textContent=adaptive.totalTrades;
+  document.getElementById('circuitBreaker').style.display=adaptive.positionMultiplier<1?'block':'none';
+  const stratEntries=Object.entries(adaptive.perStrategy||{});
+  if(stratEntries.length){
+    document.getElementById('adaptiveWeights').innerHTML='<table><thead><tr><th>Strategy</th><th>Regime</th><th>Trades</th><th>Wins</th><th>Losses</th><th>Net PnL</th></tr></thead><tbody>'+
+      stratEntries.flatMap(([strat,regimes])=>Object.entries(regimes).map(([reg,d])=>`<tr><td>${strat}</td><td><span class="regime regime-${reg}">${reg}</span></td><td>${Math.round(d.trades)}</td><td>${Math.round(d.wins)}</td><td>${Math.round(d.losses)}</td><td style="color:${d.pnl>=0?'#0f7c2f':'#c62828'}">$${Math.round(d.pnl)}</td></tr>`)).join('')+'</tbody></table>';
+  }
+  const positions=await(await fetch('/api/positions')).json();
+  document.getElementById('statPositions').textContent=positions.length;
+  document.getElementById('positionsBody').innerHTML=positions.length?positions.map(p=>
+    `<tr><td>${p.symbol}</td><td><span class="badge badge-${p.action.toLowerCase()}">${p.action}</span></td><td>${p.size}</td><td>${p.entryPrice}</td><td>${p.stopLoss}</td><td>${p.takeProfit}</td><td><span class="badge badge-open">OPEN</span></td></tr>`).join('')
+    :'<tr><td colspan="7" style="color:#999;text-align:center;">No open positions</td></tr>';
+  const trades=await(await fetch('/api/trades')).json();
+  const recent=trades.slice(-10).reverse();
+  document.getElementById('tradesBody').innerHTML=recent.length?recent.map(t=>
+    `<tr><td>${t.symbol}</td><td><span class="badge badge-${t.action.toLowerCase()}">${t.action}</span></td><td>${t.entryPrice}</td><td>${t.exitPrice||'—'}</td><td style="color:${(t.pnl||0)>=0?'#0f7c2f':'#c62828'}">${t.pnl!=null?('$'+t.pnl):'—'}</td><td><span class="badge badge-${t.status==='OPEN'?'open':'closed'}">${t.status}</span></td><td style="font-size:.7rem;color:#666;">${(t.reason||'').slice(0,40)}</td></tr>`).join('')
+    :'<tr><td colspan="7" style="color:#999;text-align:center;">No trades yet</td></tr>';
+  const decisions=await(await fetch('/api/decisions')).json();
+  const recentDec=decisions.slice(-8).reverse();
+  document.getElementById('decisionsBody').innerHTML=recentDec.length?recentDec.map(d=>
+    `<tr><td style="font-size:.7rem;">${new Date(d.timestamp).toLocaleTimeString()}</td><td>${d.symbol}</td><td>${d.signalAction}</td><td>${d.decision}</td><td style="font-size:.7rem;color:#666;">${d.skipReason||'—'}</td><td>${d.shadowOutcome||'Pending'}</td></tr>`).join('')
+    :'<tr><td colspan="6" style="color:#999;text-align:center;">No decisions logged</td></tr>';
+}
+
+// ============ SAFETY & PROPOSALS ============
+const escAttr=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const pct=x=>Math.round(x*100)+'%';
+async function refreshGuardrails(){
+  try{
+    const g=await(await fetch('/api/guardrails')).json();
+    const el=document.getElementById('guardStatus'), msg=document.getElementById('guardMessage');
+    el.className='conn-status '+(g.tradingAllowed?'conn-connected':'conn-error');
+    el.textContent=g.tradingAllowed?'● New trades allowed':'✕ New trades held';
+    msg.textContent=g.blockReason||`Loss limits: daily ${g.limits.dailyLossPct}% · weekly ${g.limits.weeklyLossPct}% · monthly ${g.limits.monthlyLossPct}%`;
+    document.getElementById('ackBtn').style.display=g.fenceActive?'inline-block':'none';
+    // Readiness and alerts come from the backend. Nothing here decides them.
+    const rd=await(await fetch('/api/readiness')).json();
+    const al=await(await fetch('/api/alerts')).json();
+    const crit=al.filter(a=>a.severity==='critical').length;
+    const label={enabled:'Execution enabled',disabled:'Execution disabled',uncertain:'Execution UNCERTAIN'}[rd.executionState];
+    msg.textContent=`${label} · mode ${rd.mode}${rd.reasons.length?' · '+rd.reasons.join('; '):''} · alerts open: ${al.length}${crit?` (${crit} critical)`:''}`;
+    el.className='conn-status '+(rd.executionState==='enabled'?'conn-connected':rd.executionState==='uncertain'?'conn-error':'conn-disconnected');
+    el.textContent=rd.executionState==='enabled'?'● Ready':rd.executionState==='uncertain'?'✕ Uncertain':'○ Not ready';
+    const props=await(await fetch('/api/proposals')).json();
+    document.getElementById('proposalsList').innerHTML=props.length?props.map(p=>`
+      <div style="padding:.6rem;background:#f8f9fa;border-radius:8px;margin:.4rem 0;">
+        <strong>${escAttr(p.description)}</strong><br>
+        <small>Early: ${p.inSample.n} trades, ${pct(p.inSample.winRate)} wins · Late: ${p.outOfSample.n} trades, ${pct(p.outOfSample.winRate)} wins, avg ${p.outOfSample.avgPnl}</small><br>
+        ${p.status==='PROPOSED'
+          ?`<button class="secondary" data-key="${escAttr(p.key)}" onclick="decideProposal(this.dataset.key,'APPROVED')">Approve</button>
+             <button class="secondary" data-key="${escAttr(p.key)}" onclick="decideProposal(this.dataset.key,'REJECTED')">Reject</button>`
+          :`<span class="badge">${p.status}</span>`}
+      </div>`).join(''):'<small style="color:#999">No recurring patterns proposed yet.</small>';
+  }catch(e){ document.getElementById('guardStatus').textContent='Safety status unavailable'; }
+}
+async function acknowledgeFence(){
+  await fetch('/api/guardrails/acknowledge',{method:'POST'});
+  refreshGuardrails();
+}
+async function runLiveBacktest(){
+  const btn=event.target; btn.disabled=true; btn.textContent='Running…';
+  try{ const r=await(await fetch('/api/backtest/live',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({options:{},learn:true})})).json();
+    const runs=r.results.filter(x=>!x.error).length, m=r.model||{};
+    alert('Backtest finished: '+runs+' strategy/symbol runs learned.\nML model: '+(m.active?'active — it now gates trades above '+Math.round((m.minProbability||0.5)*100)+'% win probability':'not yet active ('+(m.reason||'did not beat the average trade on held-back data')+')')+'.');
+  }catch(e){ alert('Backtest failed: '+e.message); }
+  btn.disabled=false; btn.textContent='🧪 Backtest on live bars';
+}
+async function minePatterns(){
+  await fetch('/api/proposals/mine',{method:'POST'});
+  refreshGuardrails();
+}
+async function decideProposal(key,decision){
+  await fetch('/api/proposals/decide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,decision})});
+  refreshGuardrails();
+}
+loadPrefs();refreshCtraderStatus();refreshData();loadAnalytics();refreshGuardrails();
+setInterval(refreshData,5000);setInterval(refreshCtraderStatus,10000);setInterval(loadAnalytics,30000);setInterval(refreshGuardrails,15000);
+window.addEventListener('resize',()=>{if(equityChart)equityChart.resize();if(strategyChart)strategyChart.resize();if(symbolChart)symbolChart.resize();});
+</script>
+</body>
+</html>
