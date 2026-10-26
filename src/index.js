@@ -324,6 +324,11 @@ app.post('/api/auth/rotate', async (req, res) => {
   audit.record('AUTH_ROTATED', {});
   res.json({ token, note: 'Store this token now. It is shown once and the previous token no longer works.' });
 });
+// Owner resumes new entries after a pause. Refused unless the last broker reconciliation succeeded.
+app.post('/api/engine/entries/resume', async (req, res) => {
+  const r = await require('./engine/entryPause').resume({ reconcileOk: engineHealth.reconcileStatus().lastReconcileOk === true, actor: 'owner' });
+  res.status(r.resumed ? 200 : 409).json(r);
+});
 app.post('/api/guardrails/acknowledge', async (req, res) => {
   const r = await guardrails.acknowledgeFence();
   audit.record('RECOVERY_ACKNOWLEDGED', {});
@@ -410,7 +415,8 @@ app.get('/api/readiness', async (req, res) => {
     brokerState: ctraderConn.getStatus().state,
     feedReady: require('./ctrader/marketFeed').isReady(),
     unresolved: rs.unresolved,
-    unmanaged: rs.unmanaged
+    unmanaged: rs.unmanaged,
+    entriesPaused: require('./engine/entryPause').status().active
   }));
 });
 
@@ -443,6 +449,7 @@ process.on('SIGTERM', requestShutdown);
 (async () => {
   await prefs.init();
   await guardrails.init();
+  await require('./engine/entryPause').init();
   await patternMiner.init();
   await mlModel.init();
   await limits.init();

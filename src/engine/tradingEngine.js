@@ -18,6 +18,7 @@ const guardrails = require('../governance/guardrails');
 const storage = require('../data/storage');
 const safety = require('../execution/safety');
 const dataQuality = require('../data/quality');
+const entryPause = require('./entryPause');
 
 let engineInterval = null;
 let monitorInterval = null;
@@ -55,6 +56,7 @@ async function syncOps() {
   const conditions = [];
   const failing = cycleFailureCondition(consecutiveCycleFailures);
   if (failing) conditions.push(failing);
+  if (entryPause.status().active) conditions.push({ code: 'ENTRIES_PAUSED', severity: 'high', message: entryPause.status().reason });
   if (lastRec.unresolved.length) conditions.push({ code: 'UNRESOLVED_ORDER', severity: 'critical', message: `${lastRec.unresolved.length} order outcome(s) not confirmed by the broker` });
   if (lastRec.unmanaged.length) conditions.push({ code: 'UNMANAGED_POSITION', severity: 'critical', message: `${lastRec.unmanaged.length} broker position(s) with no local record` });
   if (lastRec.reconcileFailed) conditions.push({ code: 'RECONCILE_FAILED', severity: 'high', message: 'broker reconciliation failed in the last cycle' });
@@ -111,6 +113,9 @@ async function runCycle() {
     console.log(`[ENGINE] Closed ${trade.symbol} ${trade.action} — PnL: ${trade.pnl} (${trade.closeReason})`);
   }
   if (closed.length) await mlModel.maybeRetrain();
+
+  // 2b. Entries paused after repeated cycle failures: exits above already ran; nothing new is opened until an owner resumes
+  if (entryPause.status().active) { stats.lastBlockReason = entryPause.status().reason; return; }
 
   // 3. Owner switch, recovery fence and loss caps stop new trades only
   const govCheck = await governance.allowTrade('demo');
@@ -238,6 +243,8 @@ function start(intervalMs = 5000) {
     .catch(e => {
       consecutiveCycleFailures++;
       console.log(`[ENGINE] cycle error: ${e.message}`);
+      // Repeated failures pause NEW entries only (owner decision 4). Exits and monitoring keep running.
+      entryPause.tripOnFailures(consecutiveCycleFailures).catch(() => {});
       // The cycle may have failed before its own alert sync, so sync again from here.
       syncOps().catch(() => {});
     });
