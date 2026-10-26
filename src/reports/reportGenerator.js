@@ -99,6 +99,15 @@ function buildReport(period, { trades = [], decisions: rawDecisions = [], outcom
   };
 }
 
+// Hourly broker bars for the yearly benchmarks. Empty when the broker is not authenticated: then every buy-and-hold is unavailable.
+async function yearlyBars(now) {
+  const cm = require('../ctrader/connectionManager');
+  if (cm.getStatus().state !== 'ACCOUNT_AUTHENTICATED') return {};
+  const auth = require('../ctrader/auth');
+  const hours = (now.getTime() - periodStart('yearly', now).getTime()) / 3600000;
+  return require('../analytics/benchmarkBars').loadForSymbols({ client: cm.getClient(), accountId: Number(auth.getConfig().accountId), symbols: marketData.getSymbols(), hours, now: now.getTime() });
+}
+
 // Owner report: JSON (machine-checkable) and Markdown (for the owner), from the same build.
 async function generateReport(period, now = new Date()) {
   await fs.ensureDir(REPORTS_DIR);
@@ -106,8 +115,8 @@ async function generateReport(period, now = new Date()) {
   const intents = await storage.load('order_intents');
   const adaptive = await adaptiveLearner.getStats();
   const emergency = await limits.emergencyState();
-  // Benchmark history: hourly completed candles held in memory. A year is not held, so yearly buy-and-hold reports unavailable.
-  const barsBySymbol = Object.fromEntries(marketData.getSymbols().map(s => [s, marketData.getHistory(s, 5000, 'H1')]));
+  // Benchmark history (decision 8): yearly reports load hourly completed bars from the broker; other periods need none.
+  const barsBySymbol = period === 'yearly' ? await yearlyBars(now) : {};
   const report = ownerReport.build({
     period,
     now,

@@ -101,12 +101,20 @@ test('no more than twenty messages in any hour, across all codes', async () => {
   assert.match(over.reason, /hourly alert limit/);
 });
 
-test('email without the nodemailer package reports that clearly and does not pretend to send', async () => {
+test('with nodemailer installed, email alone enables alerts, and sends through the configured transport', async () => {
   notify.resetForTests();
   const s = notify.status({ ...EMAIL_ENV });
-  assert.equal(s.alertsEnabled, false, 'email alone is not enabled without the library');
-  if (!s.email.includes('nodemailer')) return; // the library is present in this environment; covered elsewhere
-  await assert.rejects(notify.sendEmail('subject', 'text', { env: EMAIL_ENV }), /nodemailer/);
+  assert.equal(s.email, 'configured');
+  assert.equal(s.alertsEnabled, true);
+  const sent = [];
+  const r = await notify.onOpened(alert('ENGINE_STALLED', 'high'), { env: EMAIL_ENV, fetchImpl: failFetch, transport: transportOk(sent), now: 7000 });
+  assert.equal(r.sent, true);
+  assert.equal(r.channel, 'email');
+  assert.equal(sent[0].from, 'ais@example.test');
+});
+
+test('email without a transport and without SMTP settings is refused, not faked', async () => {
+  await assert.rejects(notify.sendEmail('subject', 'text', { env: {} }), /email not configured/);
 });
 
 test('status never shows a credential value', () => {

@@ -92,6 +92,11 @@ pre{background:#f8f9fa;padding:1rem;border-radius:8px;font-size:.75rem;overflow-
 </div>
 
 <div class="card">
+  <h2>Unmanaged Broker Positions (read-only)</h2>
+  <p class="muted">Broker positions with no AIS record. Not closed or adopted automatically; new entries on the account stay blocked until the owner resolves each one through the API.</p>
+  <div id="unmanagedPanel">Loading…</div>
+</div>
+<div class="card">
   <h2>Safety &amp; Proposed Patterns</h2>
   <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
     <span id="guardStatus" class="conn-status conn-disconnected">Checking...</span>
@@ -251,6 +256,27 @@ async function refreshCtraderStatus(){
     document.getElementById('connStatus').textContent='○ Status unavailable';
     document.getElementById('setupLink').style.display='inline';
   }
+}
+// Read-only. Every value is written with textContent, so broker text can never run as markup.
+async function refreshUnmanaged(){
+  const box=document.getElementById('unmanagedPanel'); if(!box) return;
+  try{
+    const r=await fetch('/api/positions/unmanaged'); if(!r.ok){ box.textContent='Unavailable ('+r.status+')'; return; }
+    const d=await r.json(); const list=d.unmanaged||[];
+    box.textContent='';
+    if(!list.length){ box.textContent='None. Every open broker position is managed by AIS.'; return; }
+    const head=['Position','Symbol','Side','Volume','Entry','Stop','Target','Protection','Status'];
+    const table=document.createElement('table'); const tr=document.createElement('tr');
+    for(const h of head){ const th=document.createElement('th'); th.textContent=h; tr.appendChild(th); }
+    table.appendChild(tr);
+    for(const p of list){
+      const row=document.createElement('tr');
+      const cells=[p.positionId,p.symbol,p.side,p.volume,p.entryPrice,p.stopLoss??'—',p.takeProfit??'—',p.protection,p.ignored?'ignored by owner':'CRITICAL: entries blocked'];
+      for(const c of cells){ const td=document.createElement('td'); td.textContent=String(c); row.appendChild(td); }
+      table.appendChild(row);
+    }
+    box.appendChild(table);
+  }catch(e){ box.textContent='Unavailable'; }
 }
 function openCtrader(){ window.open('https://ctrader.com/','_blank'); }
 async function reconnectCtrader(){
@@ -419,8 +445,8 @@ async function decideProposal(key,decision){
   await fetch('/api/proposals/decide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,decision})});
   refreshGuardrails();
 }
-loadPrefs();refreshCtraderStatus();refreshData();loadAnalytics();refreshGuardrails();
-setInterval(refreshData,5000);setInterval(refreshCtraderStatus,10000);setInterval(loadAnalytics,30000);setInterval(refreshGuardrails,15000);
+loadPrefs();refreshCtraderStatus();refreshData();loadAnalytics();refreshGuardrails();refreshUnmanaged();
+setInterval(refreshData,5000);setInterval(refreshCtraderStatus,10000);setInterval(loadAnalytics,30000);setInterval(refreshGuardrails,15000);setInterval(refreshUnmanaged,15000);
 window.addEventListener('resize',()=>{if(equityChart)equityChart.resize();if(strategyChart)strategyChart.resize();if(symbolChart)symbolChart.resize();});
 </script>
 </body>

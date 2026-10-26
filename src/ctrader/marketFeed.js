@@ -131,4 +131,4 @@ function roundPrice(symbol, price) {
   return Number(price.toFixed(getInfo(symbol).digits));
 }
 
-module.exports = { start, stop, isReady, getInfo, unitsToVolume, roundPrice, nameForSymbolId, fetchBars, PRICE_SCALE };
+module.exports = { start, stop, isReady, getInfo, unitsToVolume, roundPrice, nameForSymbolId, fetchBars, PRICE_SCALE, PERIOD };

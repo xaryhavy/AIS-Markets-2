@@ -50,3 +50,11 @@ Alerts stay off until at least one channel is set. Email also needs the nodemail
 2. Approve `nodemailer` (for the email fallback), and build the dashboard panel for unmanaged positions.
 3. Connect a historical price source so yearly benchmarks can be reported.
 4. Once there are pending-entry opportunities, exercise INVALIDATED on the demo account.
+
+## Update - completion pass (commit after aa10904)
+- **5 Unmanaged positions:** dashboard panel added (read-only, text-escaped, no action buttons). Tests: tests/dashboardUnmanaged.test.js (3). Resolution remains API-only, owner action.
+- **8 Yearly benchmarks:** yearly reports now load hourly completed bars from the broker (read-only trend-bar requests, `src/analytics/benchmarkBars.js`). Buy-and-hold is reported only when the bars cover the period; otherwise "benchmark unavailable". Tests: tests/benchmarkBars.test.js (4). Needs an authenticated broker session; otherwise unavailable.
+- **9 Alert channels:** `nodemailer` ^6.10.1 added as a declared dependency; email fallback now works through SMTP when the ALERT_EMAIL_* variables are set. Telegram code is in place but NOT exercised against a real bot (no token available here). Tests updated to the installed-library state: tests/notify.test.js (10).
+- **6 Compaction:** built and dry-run tested. **Not applied.** The owner's answer on which legacy-format decisions to compact is still needed.
+- **10 INVALIDATED:** rule, storage, summaries and report counts are complete. The producer of pending-entry opportunities is NOT built: defining the entry trigger for a rejected signal changes what the NO-TRADE monitor measures, so it needs the owner's rule.
+- Full suite at this commit: 288 pass, 0 fail.
