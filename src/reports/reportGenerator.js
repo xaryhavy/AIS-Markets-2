@@ -3,6 +3,7 @@ const path = require('path');
 const storage = require('../data/storage');
 const noTrade = require('../governance/noTrade');
 const { CLASSES, classifyTrade } = require('../analytics/evidence');
+const marketData = require('../data/marketdata');
 const ownerReport = require('./ownerReport');
 const adaptiveLearner = require('../intelligence/adaptiveLearner');
 const mlModel = require('../intelligence/mlModel');
@@ -105,9 +106,12 @@ async function generateReport(period, now = new Date()) {
   const intents = await storage.load('order_intents');
   const adaptive = await adaptiveLearner.getStats();
   const emergency = await limits.emergencyState();
+  // Benchmark history: hourly completed candles held in memory. A year is not held, so yearly buy-and-hold reports unavailable.
+  const barsBySymbol = Object.fromEntries(marketData.getSymbols().map(s => [s, marketData.getHistory(s, 5000, 'H1')]));
   const report = ownerReport.build({
     period,
     now,
+    barsBySymbol,
     trades: await storage.load('trades'),
     decisions: await storage.load('decisions'),
     outcomes: await storage.load('no_trade_outcomes'),

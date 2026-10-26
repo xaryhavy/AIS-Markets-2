@@ -3,6 +3,7 @@
 // Estimates, hypothetical NO-TRADE outcomes and simulated records are shown in their own sections.
 // Every report lists its sources, its generation time and the data it does not have.
 const noTrade = require('../governance/noTrade');
+const benchmarks = require('../analytics/benchmarks');
 
 const MIN_SAMPLE = 30;
 const CODES_RISK = new Set(['RISK_ADMISSION', 'PRETRADE_BOUNDARY', 'ENTRY_BLOCKED']);
@@ -53,7 +54,7 @@ function groupPnl(trades, keyFn) {
   }]));
 }
 
-function build({ period, now = new Date(), trades = [], decisions = [], outcomes = [], intents = [], equity = [], snapshot = {} }) {
+function build({ period, now = new Date(), trades = [], decisions = [], outcomes = [], intents = [], equity = [], snapshot = {}, barsBySymbol = {} }) {
   const start = periodStart(period, now);
   const end = now;
   const inP = iso => { if (!iso) return false; const t = new Date(iso); return t >= start && t <= end; };
@@ -173,7 +174,12 @@ function build({ period, now = new Date(), trades = [], decisions = [], outcomes
   };
 
   if (period === 'monthly') report.weeklyBreakdown = weekly(exact, start, end);
-  if (period === 'yearly') report.monthlyBreakdown = monthly(exact, start, end);
+  if (period === 'yearly') {
+    report.monthlyBreakdown = monthly(exact, start, end);
+    // Yearly benchmarks (decision 8): buy-and-hold per traded instrument, and flat/cash. Never estimated.
+    report.benchmarks = benchmarks.build({ symbols: exact.map(t => t.symbol), startMs: start.getTime(), endMs: end.getTime(), barsBySymbol });
+    if (report.benchmarks.unavailableCount) missing.push(`Benchmarks: ${report.benchmarks.unavailableCount} buy-and-hold benchmark(s) unavailable (price history does not cover the period); not estimated`);
+  }
   return report;
 }
 
@@ -245,6 +251,13 @@ function toMarkdown(r) {
   lines.push('## Hypothetical NO-TRADE (not executed, not profit or loss)');
   lines.push(`- Outcomes: ${JSON.stringify(r.hypothetical.outcomes)}; target rate: ${r.hypothetical.targetRatePct ?? 'n/a'}% (${r.hypothetical.sample})`);
   lines.push('');
+  if (r.benchmarks) {
+    lines.push('## Yearly benchmarks');
+    lines.push(`- Definition: ${r.benchmarks.definition}`);
+    lines.push(`- Flat/cash: ${r.benchmarks.flatCash.returnPct}% (label: flat/cash baseline)`);
+    for (const b of r.benchmarks.buyAndHold) lines.push(b.status === 'OK' ? `- Buy-and-hold ${b.symbol}: ${b.returnPct}% (${b.from} to ${b.to})` : `- Buy-and-hold ${b.symbol}: benchmark unavailable (${b.reason})`);
+    lines.push('');
+  }
   lines.push('## Missing or incomplete data');
   for (const m of r.missingData) lines.push(`- ${m}`);
   lines.push('');
