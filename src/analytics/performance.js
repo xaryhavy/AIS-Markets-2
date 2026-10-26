@@ -3,7 +3,8 @@ const storage = require('../data/storage');
 
 async function getEquityCurve(startBalance = 10000) {
   const trades = await storage.load('trades');
-  const closed = trades.filter(t => t.status === 'CLOSED' && t.pnl != null);
+  // Legacy and simulated trades are archived and never part of owner performance (decision 1).
+  const closed = trades.filter(t => t.source === 'ctrader' && t.evidenceMode !== 'PAPER' && t.status === 'CLOSED' && t.pnl != null);
   let equity = startBalance;
   const curve = [{ time: 0, equity: startBalance, drawdown: 0 }];
   let peak = startBalance, maxDrawdown = 0;
@@ -21,7 +22,8 @@ async function getEquityCurve(startBalance = 10000) {
 
 async function perStrategyStats() {
   const trades = await storage.load('trades');
-  const closed = trades.filter(t => t.status === 'CLOSED' && t.pnl != null);
+  // Legacy and simulated trades are archived and never part of owner performance (decision 1).
+  const closed = trades.filter(t => t.source === 'ctrader' && t.evidenceMode !== 'PAPER' && t.status === 'CLOSED' && t.pnl != null);
   const byStrategy = {};
 
   closed.forEach(t => {
@@ -46,7 +48,8 @@ async function perStrategyStats() {
 
 async function perSymbolStats() {
   const trades = await storage.load('trades');
-  const closed = trades.filter(t => t.status === 'CLOSED' && t.pnl != null);
+  // Legacy and simulated trades are archived and never part of owner performance (decision 1).
+  const closed = trades.filter(t => t.source === 'ctrader' && t.evidenceMode !== 'PAPER' && t.status === 'CLOSED' && t.pnl != null);
   const bySymbol = {};
   closed.forEach(t => {
     if (!bySymbol[t.symbol]) bySymbol[t.symbol] = { trades: 0, pnl: 0 };

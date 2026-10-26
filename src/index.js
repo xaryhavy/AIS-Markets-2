@@ -356,6 +356,14 @@ app.post('/api/positions/unmanaged/:positionId/resolve', async (req, res) => {
     res.json(r);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
+// Legacy simulated trades: dry run, archive (tag, never delete), and rollback of the tags.
+app.get('/api/legacy/plan', async (req, res) => res.json(await require('./data/legacyArchive').plan()));
+app.post('/api/legacy/archive', async (req, res) => {
+  try { res.json(await require('./data/legacyArchive').apply({ actor: 'owner' })); } catch (e) { res.status(409).json({ error: e.message }); }
+});
+app.post('/api/legacy/archive/rollback', async (req, res) => {
+  try { res.json(await require('./data/legacyArchive').rollback({ actor: 'owner' })); } catch (e) { res.status(409).json({ error: e.message }); }
+});
 // Data gate: how many unexplained missing candles inside the lookback are tolerated before a block (default 0).
 app.get('/api/data/gate', (req, res) => res.json({ gapTolerance: require('./data/quality').getGapTolerance() }));
 app.post('/api/data/gate', async (req, res) => {
