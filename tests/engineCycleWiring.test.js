@@ -7,6 +7,7 @@ const path = require('path');
 // Runs the real runCycle with its external dependencies stubbed: no broker, no storage writes, no alerts.
 process.env.AIS_AUDIT_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ais-wire-')), 'audit.log');
 const engine = require('../src/engine/tradingEngine');
+const mtmCaps = require('../src/risk/mtmCaps');
 const trading = require('../src/ctrader/trading');
 const orderManager = require('../src/execution/orderManager');
 const governance = require('../src/governance');
@@ -32,6 +33,7 @@ function setup({ reconcileThrows = false, allow = true, closed = [], price = und
   const pairs = [
     [trading, 'reconcile', async () => { if (reconcileThrows) throw new Error('broker timeout'); return { adopted: [], emergencyClosed: [], unmanaged: [], unresolved: [] }; }],
     [trading, 'isReady', () => true],
+    [mtmCaps, 'equitySnapshot', async () => 1000],
     [trading, 'openMarket', async () => { calls.openMarket++; return {}; }],
     [orderManager, 'syncWithBroker', async () => { calls.syncWithBroker++; return []; }],
     [orderManager, 'checkAndClosePositions', async () => { calls.checkAndClose++; return closed; }],

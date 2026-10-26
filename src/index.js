@@ -329,6 +329,15 @@ app.post('/api/engine/entries/resume', async (req, res) => {
   const r = await require('./engine/entryPause').resume({ reconcileOk: engineHealth.reconcileStatus().lastReconcileOk === true, actor: 'owner' });
   res.status(r.resumed ? 200 : 409).json(r);
 });
+// Mark-to-market loss caps: owner reads and sets them; a latched cap is cleared only by an owner resume after reconciliation.
+app.get('/api/risk/mtm', async (req, res) => res.json(await require('./risk/mtmCaps').status()));
+app.post('/api/risk/mtm', async (req, res) => {
+  try { res.json(await require('./risk/mtmCaps').setCaps(req.body || {}, 'owner')); } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/risk/mtm/resume', async (req, res) => {
+  const r = await require('./risk/mtmCaps').resume({ actor: 'owner', reconcileOk: engineHealth.reconcileStatus().lastReconcileOk === true });
+  res.status(r.resumed ? 200 : 409).json(r);
+});
 // Owner shutdown: disables all new entries at once and records who, when, why and the system state. Positions are not closed.
 app.get('/api/system/shutdown', async (req, res) => res.json({ active: await require('./governance/shutdown').current() }));
 app.post('/api/system/shutdown', async (req, res) => {

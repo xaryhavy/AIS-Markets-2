@@ -24,7 +24,8 @@ const OPS = {
   newOrder:      { req: 'ProtoOANewOrderReq',                    enum: 'PROTO_OA_NEW_ORDER_REQ',                   res: 'ProtoOAExecutionEvent' },
   closePosition: { req: 'ProtoOAClosePositionReq',               enum: 'PROTO_OA_CLOSE_POSITION_REQ',              res: 'ProtoOAExecutionEvent' },
   amendSltp:     { req: 'ProtoOAAmendPositionSLTPReq',           enum: 'PROTO_OA_AMEND_POSITION_SLTP_REQ',         res: 'ProtoOAExecutionEvent' },
-  reconcile:     { req: 'ProtoOAReconcileReq',                   enum: 'PROTO_OA_RECONCILE_REQ',                   res: 'ProtoOAReconcileRes' }
+  reconcile:     { req: 'ProtoOAReconcileReq',                   enum: 'PROTO_OA_RECONCILE_REQ',                   res: 'ProtoOAReconcileRes' },
+  unrealizedPnl: { req: 'ProtoOAGetPositionUnrealizedPnLReq',     enum: 'PROTO_OA_GET_POSITION_UNREALIZED_PNL_REQ', res: 'ProtoOAGetPositionUnrealizedPnLRes' }
 };
 
 const ORDER_TYPE_MARKET = 1; // ProtoOAOrderType.MARKET
@@ -142,6 +143,12 @@ class OpenApiClient {
     // The amend is answered with an execution event whose type is not a fill (e.g. ORDER_REPLACED).
     const ev = await this._request('amendSltp', { ctidTraderAccountId, positionId, stopLoss, takeProfit }, { accept: isAmendReply });
     return this._executionResult(ev, 'Amend SL/TP');
+  }
+
+  // Unrealised P&L of every open position, in deposit currency. moneyDigits scales the raw integers.
+  async unrealizedPnl(ctidTraderAccountId) {
+    const res = await this._request('unrealizedPnl', { ctidTraderAccountId });
+    return this._plain(OPS.unrealizedPnl.res, res);
   }
 
   async reconcile(ctidTraderAccountId) {

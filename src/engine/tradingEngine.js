@@ -20,6 +20,7 @@ const safety = require('../execution/safety');
 const dataQuality = require('../data/quality');
 const entryPause = require('./entryPause');
 const shutdownRecords = require('../governance/shutdown');
+const mtmCaps = require('../risk/mtmCaps');
 
 let engineInterval = null;
 let monitorInterval = null;
@@ -58,6 +59,8 @@ async function syncOps() {
   const failing = cycleFailureCondition(consecutiveCycleFailures);
   if (failing) conditions.push(failing);
   if (entryPause.status().active) conditions.push({ code: 'ENTRIES_PAUSED', severity: 'high', message: entryPause.status().reason });
+  const capStatus = await mtmCaps.status();
+  if (capStatus.tripped) conditions.push({ code: 'RISK_CAP_HIT', severity: 'critical', message: capStatus.reason });
   const ownerShutdown = await shutdownRecords.current();
   if (ownerShutdown) conditions.push({ code: 'OWNER_SHUTDOWN', severity: 'critical', message: `owner shutdown active since ${ownerShutdown.requestedAt}: ${ownerShutdown.reason}` });
   if (lastRec.unresolved.length) conditions.push({ code: 'UNRESOLVED_ORDER', severity: 'critical', message: `${lastRec.unresolved.length} order outcome(s) not confirmed by the broker` });
@@ -116,6 +119,10 @@ async function runCycle() {
     console.log(`[ENGINE] Closed ${trade.symbol} ${trade.action} — PnL: ${trade.pnl} (${trade.closeReason})`);
   }
   if (closed.length) await mlModel.maybeRetrain();
+
+  // 2a. Mark-to-market loss caps (decision 2): block new entries when a cap is hit or equity is unknown. Exits above already ran.
+  const capGate = await mtmCaps.checkCycle(await mtmCaps.equitySnapshot());
+  if (capGate.block) { stats.lastBlockReason = capGate.reason; return; }
 
   // 2b. Entries paused after repeated cycle failures: exits above already ran; nothing new is opened until an owner resumes
   if (entryPause.status().active) { stats.lastBlockReason = entryPause.status().reason; return; }
