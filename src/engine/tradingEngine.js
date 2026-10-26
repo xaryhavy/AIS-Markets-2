@@ -23,9 +23,11 @@ const shutdownRecords = require('../governance/shutdown');
 const mtmCaps = require('../risk/mtmCaps');
 const { ENGINE_MAX_AGE_MS } = require('../governance/readiness');
 const unmanaged = require('../execution/unmanaged');
+const compaction = require('../governance/compaction');
 
 let engineInterval = null;
 let monitorInterval = null;
+let compactionInterval = null;
 let lastRec = { adopted: [], emergencyClosed: [], unmanaged: [], unresolved: [], reconcileFailed: false };
 let lastReconcileOk = null;
 let lastCycleAt = null;
@@ -286,10 +288,15 @@ function start(intervalMs = 5000) {
   // The monitor timer also refreshes alerts, so a stalled engine (no cycles running) is still reported.
   const safeMonitor = () => syncOps().catch(() => {}).then(() => noTrade.runMonitor()).catch(e => console.log(`[ENGINE] no-trade monitor error: ${e.message}`));
   monitorInterval = setInterval(safeMonitor, 60000);
+  // Decision-log compaction: scheduled DRY RUN only, every 6 hours, logged. It never applies (item 6 checkpoint).
+  const dryRun = () => compaction.logDryRun().catch(e => console.log(`[ENGINE] compaction dry run error: ${e.message}`));
+  dryRun();
+  compactionInterval = setInterval(dryRun, 6 * 3600000);
 }
 function stop() {
   if (engineInterval) { clearInterval(engineInterval); engineInterval = null; }
   if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null; }
+  if (compactionInterval) { clearInterval(compactionInterval); compactionInterval = null; }
 }
 function getStats() { return { ...stats, lastReconcileOk, lastCycleAt }; }
 function engineAgeMs() { return lastCycleAt === null ? null : Date.now() - lastCycleAt; }

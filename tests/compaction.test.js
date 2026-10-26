@@ -48,9 +48,8 @@ test('the dry run reports what would be compacted and why others are kept, and c
   assert.equal(p.dryRun, true);
   assert.equal(p.compactable, 2);
   assert.deepEqual(p.compactableByReason, { NOT_QUALIFIED: 2 });
-  assert.equal(p.protectedInWindow, 3, 'eligible WAIT records kept by a dependency');
-  assert.equal(p.protectedByReason['NO-TRADE outcome'], 1);
-  assert.equal(p.protectedByReason['incident (data-gate block)'], 1);
+  // Only current-format NOT_QUALIFIED WAIT records are candidates now; the open-position one is kept.
+  assert.equal(p.protectedInWindow, 1);
   assert.equal(p.protectedByReason['open position'], 1);
   assert.equal(p.rollupGroups, 1, 'the two same-day records share one rollup');
   assert.equal((await storage.load(c.DECISIONS)).length, decisions.length, 'nothing changed');
@@ -104,4 +103,24 @@ test('an interrupted run is not archived twice on retry', async () => {
   assert.equal(r.compacted, 2);
   const archivedIds = (await storage.load(c.ARCHIVE)).map(d => d.id);
   assert.equal(archivedIds.filter(id => id === 'W-compact-1').length, 1, 'no duplicate archive entry');
+});
+
+test('legacy-format decisions are never compacted, even when old and NOT_QUALIFIED', () => {
+  const legacy = { id: 'L-1', timestamp: '2026-09-01T10:00:00Z', symbol: 'EURUSD', decision: { decision: 'SKIPPED', reason: 'Max exposure reached' } };
+  const noState = { id: 'L-2', timestamp: '2026-09-01T10:00:00Z', symbol: 'EURUSD', decision: 'SKIPPED', reasonCode: 'NOT_QUALIFIED' };
+  assert.equal(c.isCompactable(legacy, '2026-10-01T00:00:00Z'), false);
+  assert.equal(c.isCompactable(noState, '2026-10-01T00:00:00Z'), false);
+  assert.equal(c.isCompactable(decisions[0], '2026-10-01T00:00:00Z'), true);
+});
+
+test('the scheduled dry run logs its plan, records no application, and changes no decision', async () => {
+  await seed();
+  const before = (await storage.load(c.DECISIONS)).length;
+  const p = await c.logDryRun({ retentionDays: 30, now: NOW });
+  assert.equal(p.dryRun, true);
+  assert.equal((await storage.load(c.DECISIONS)).length, before);
+  const log = await storage.load('decision_compaction_dryrun_log');
+  assert.equal(log.length, 1);
+  assert.equal(log[0].applied, false);
+  assert.equal(log[0].compactable, p.compactable);
 });

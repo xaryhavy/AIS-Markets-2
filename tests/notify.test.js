@@ -122,3 +122,12 @@ test('status never shows a credential value', () => {
   assert.equal(s.includes(TOKEN), false);
   assert.equal(s.includes('secret-pass'), false);
 });
+
+test('a network error that echoes the request URL never leaks the bot token into the audit log', async () => {
+  notify.resetForTests();
+  const leaky = async url => { throw new Error(`request to ${url} failed`); };
+  const r = await notify.onOpened(alert('LEAK_TEST', 'high'), { env: TG_ENV, fetchImpl: leaky, transport: null, now: 8000 });
+  assert.equal(r.sent, false);
+  assert.equal(fs.readFileSync(audit.AUDIT_FILE, 'utf8').includes(TOKEN), false, 'the token is not in the audit log');
+  assert.equal(String(r.reason).includes(TOKEN), false, 'nor in the returned reason');
+});

@@ -58,3 +58,6 @@ Alerts stay off until at least one channel is set. Email also needs the nodemail
 - **6 Compaction:** built and dry-run tested. **Not applied.** The owner's answer on which legacy-format decisions to compact is still needed.
 - **10 INVALIDATED:** rule, storage, summaries and report counts are complete. The producer of pending-entry opportunities is NOT built: defining the entry trigger for a rejected signal changes what the NO-TRADE monitor measures, so it needs the owner's rule.
 - Full suite at this commit: 288 pass, 0 fail.
+
+## Completion pass 2 (items 5, 6, 8, 9, 10)
+See COMPLETION_REGISTER.md section "Items 5, 6, 8, 9, 10". Summary: 5 partial (dashboard panel built); 6 built, not applied, legacy tagged and never compacted; 8 partial (broker benchmarks, unavailable for periods without coverage); 9 partial (Telegram unverified against a live bot, email via nodemailer, credentials env-only, redacted); 10 partial (both entry types built, no LEVEL producer yet).

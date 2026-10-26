@@ -11,11 +11,23 @@ const DECISIONS = 'decisions';
 const ARCHIVE = 'decisions_compacted';
 const ROLLUPS = 'decision_rollups';
 const RUNS = 'decision_compaction_runs';
+const DRY_RUN_LOG = 'decision_compaction_dryrun_log';
 const DEFAULT_RETENTION_DAYS = 30;
 const MIN_RETENTION = 1;
 const MAX_RETENTION = 365;
 const COMPACTABLE_STATE = 'WAIT';
-const COMPACTABLE_CODES = new Set(['NOT_QUALIFIED', 'DATA_QUALITY', 'ENTRY_BLOCKED', 'COOLDOWN', 'STALE_ANALYSIS']);
+// Only current-format WAIT / NOT_QUALIFIED records are compactable (owner decision, item 6).
+const COMPACTABLE_CODES = new Set(['NOT_QUALIFIED']);
+
+// Pure. Current-format means a string decision, a state and a reason code, and not tagged legacy/unverified.
+function isCurrentFormat(d) {
+  return !!d && typeof d.decision === 'string' && typeof d.state === 'string' && typeof d.reasonCode === 'string' && d.evidenceStatus !== 'legacy/unverified';
+}
+
+// Pure. Eligible before protection is checked.
+function isCompactable(d, cutoff) {
+  return isCurrentFormat(d) && d.decision === 'SKIPPED' && d.state === COMPACTABLE_STATE && COMPACTABLE_CODES.has(d.reasonCode) && d.timestamp < cutoff;
+}
 
 function validRetention(n) {
   if (!Number.isInteger(n) || n < MIN_RETENTION || n > MAX_RETENTION) throw new Error(`retention must be a whole number of days from ${MIN_RETENTION} to ${MAX_RETENTION}`);
@@ -52,7 +64,7 @@ async function plan({ retentionDays = DEFAULT_RETENTION_DAYS, now = new Date() }
     storage.load(DECISIONS), storage.load('no_trade_outcomes'), storage.load('trades'), storage.load('data_gate_blocks')
   ]);
   const protectedMap = protectedIds({ decisions, outcomes, trades, gateBlocks });
-  const candidates = decisions.filter(d => d.decision === 'SKIPPED' && d.state === COMPACTABLE_STATE && COMPACTABLE_CODES.has(d.reasonCode) && d.timestamp < cutoff);
+  const candidates = decisions.filter(d => isCompactable(d, cutoff));
   const toCompact = candidates.filter(d => !protectedMap.has(d.id));
   const skippedProtected = candidates.filter(d => protectedMap.has(d.id));
   const groups = {};
@@ -93,7 +105,7 @@ async function apply({ retentionDays = DEFAULT_RETENTION_DAYS, now = new Date(),
     const protectedMap = protectedIds({ decisions, outcomes, trades, gateBlocks });
     const keep = [];
     for (const d of decisions) {
-      const eligible = d.decision === 'SKIPPED' && d.state === COMPACTABLE_STATE && COMPACTABLE_CODES.has(d.reasonCode) && d.timestamp < cutoff && !protectedMap.has(d.id);
+      const eligible = isCompactable(d, cutoff) && !protectedMap.has(d.id);
       if (!eligible) { keep.push(d); continue; }
       compactedIds.push(d.id);
       const key = [dayOf(d.timestamp), d.reasonCode, d.symbol, d.strategy || 'none', d.timeframe || 'M1'].join('|');
@@ -140,4 +152,12 @@ async function reverse(runId, { actor = 'owner', now = new Date() } = {}) {
   return { runId, restored: archived.length };
 }
 
-module.exports = { plan, apply, reverse, protectedIds, validRetention, DEFAULT_RETENTION_DAYS, COMPACTABLE_CODES, DECISIONS, ARCHIVE, ROLLUPS, RUNS };
+// Scheduled dry run: computes the plan and logs it. Never applies anything.
+async function logDryRun({ retentionDays = DEFAULT_RETENTION_DAYS, now = new Date() } = {}) {
+  const p = await plan({ retentionDays, now });
+  await storage.append(DRY_RUN_LOG, { at: now.toISOString(), retentionDays: p.retentionDays, cutoff: p.cutoff, compactable: p.compactable, protectedInWindow: p.protectedInWindow, compactableByReason: p.compactableByReason, protectedByReason: p.protectedByReason, applied: false });
+  audit.record('COMPACTION_DRY_RUN', { compactable: p.compactable, protectedInWindow: p.protectedInWindow });
+  return p;
+}
+
+module.exports = { plan, apply, reverse, logDryRun, isCompactable, protectedIds, validRetention, DEFAULT_RETENTION_DAYS, COMPACTABLE_CODES, DECISIONS, ARCHIVE, ROLLUPS, RUNS };

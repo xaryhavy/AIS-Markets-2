@@ -4,6 +4,7 @@
 // separate outcome records linked by decisionId; decision records are never rewritten.
 const storage = require('../data/storage');
 const marketData = require('../data/marketdata');
+const entryStates = require('./entryStates');
 
 const HORIZON_MINUTES = 60;
 const CANDLE_MS = 60000;
@@ -47,58 +48,21 @@ function normalizeDecision(d) {
   return { ...d, legacy: false };
 }
 
-// INVALIDATED (decision 10). Applies only to opportunities with a pending entry trigger or an evidence expiry.
-//   - price breaches the invalidation level before the entry triggers  -> INVALIDATED, rule PRICE_BREACHED_BEFORE_ENTRY
-//   - the evidence expires before the entry triggers                   -> INVALIDATED, rule EVIDENCE_EXPIRED_BEFORE_ENTRY
-// A candle that both breaches the invalidation level and touches the entry is treated as invalidated (the order
-// within the candle is unknown; the conservative reading is used and recorded as SAME_CANDLE). Returns null when the
-// entry triggered first, or when there is nothing pending.
-function checkInvalidation(dec, candles, nowMs) {
-  if (!Number.isFinite(dec.entryTrigger)) return null;
-  const { action } = dec.levels;
-  const decisionMs = Date.parse(dec.timestamp);
-  const firstMs = (Math.floor(decisionMs / CANDLE_MS) + 1) * CANDLE_MS;
-  const expiryMs = dec.evidenceExpiresAt ? Date.parse(dec.evidenceExpiresAt) : null;
-  const list = candles.filter(c => c.time >= firstMs && c.time + CANDLE_MS <= nowMs).sort((a, b) => a.time - b.time);
-  for (const c of list) {
-    if (expiryMs !== null && c.time >= expiryMs) {
-      return { status: 'INVALIDATED', rule: 'EVIDENCE_EXPIRED_BEFORE_ENTRY', invalidatedAt: new Date(expiryMs).toISOString() };
-    }
-    const triggers = c.low <= dec.entryTrigger && dec.entryTrigger <= c.high;
-    const breached = Number.isFinite(dec.invalidationLevel)
-      && (action === 'BUY' ? c.low <= dec.invalidationLevel : c.high >= dec.invalidationLevel);
-    if (breached) {
-      return { status: 'INVALIDATED', rule: triggers ? 'PRICE_BREACHED_BEFORE_ENTRY (SAME_CANDLE)' : 'PRICE_BREACHED_BEFORE_ENTRY', invalidatedAt: new Date(c.time + CANDLE_MS).toISOString() };
-    }
-    if (triggers) return null;
-  }
-  return null;
-}
-
-// Pure. True when a completed candle after the decision touched the pending entry price.
-function entryTriggered(dec, candles, nowMs) {
-  const firstMs = (Math.floor(Date.parse(dec.timestamp) / CANDLE_MS) + 1) * CANDLE_MS;
-  return candles.some(c => c.time >= firstMs && c.time + CANDLE_MS <= nowMs && c.low <= dec.entryTrigger && dec.entryTrigger <= c.high);
-}
-
 // Pure: resolves one frozen hypothetical against completed candles.
 //   dec: { timestamp, levels: { action, entry, stopLoss, takeProfit }, horizonMinutes }
 //   candles: completed M1 candles (any order); nowMs: evaluation time
 // Returns { status, resolvedAt, exitPrice, candlesScanned, note }.
 function resolveOutcome(dec, candles, nowMs) {
+  if (dec.entryType === 'LEVEL') {
+    if (!dec.levels || !Number.isFinite(dec.entryLevel)) return { status: 'NOT_EVALUABLE', note: 'level entry without a defined entry level' };
+    return entryStates.resolveLevelOutcome(dec, candles, nowMs);
+  }
   if (!dec.levels || ![dec.levels.entry, dec.levels.stopLoss, dec.levels.takeProfit].every(Number.isFinite)) {
     return { status: 'NOT_EVALUABLE', note: 'no frozen levels at decision time' };
   }
   const { action, stopLoss: sl, takeProfit: tp } = dec.levels;
   const decisionMs = Date.parse(dec.timestamp);
   const horizonEnd = decisionMs + (dec.horizonMinutes || HORIZON_MINUTES) * 60000;
-  const inv = checkInvalidation(dec, candles, nowMs);
-  if (inv) return inv;
-  if (Number.isFinite(dec.entryTrigger) && !entryTriggered(dec, candles, nowMs)) {
-    return nowMs < horizonEnd
-      ? { status: 'UNRESOLVED', note: 'entry not yet triggered' }
-      : { status: 'EXPIRED', note: 'entry never triggered within the horizon' };
-  }
   // First candle that began after the decision moment: never uses the candle the decision was made in.
   const firstMs = (Math.floor(decisionMs / CANDLE_MS) + 1) * CANDLE_MS;
   const list = candles.filter(c => c.time >= firstMs && c.time < horizonEnd && c.time + CANDLE_MS <= nowMs)
@@ -140,7 +104,7 @@ function wilson(k, n, z = 1.96) {
 function summarise(outcomes, key) {
   const groups = {};
   for (const o of outcomes) {
-    const g = (groups[o[key]] ||= { n: 0, TARGET_HIT: 0, STOP_HIT: 0, EXPIRED: 0, AMBIGUOUS: 0, MISSING_DATA: 0, NOT_EVALUABLE: 0, INVALIDATED: 0 });
+    const g = (groups[o[key]] ||= { n: 0, TARGET_HIT: 0, STOP_HIT: 0, EXPIRED: 0, AMBIGUOUS: 0, MISSING_DATA: 0, NOT_EVALUABLE: 0, INVALIDATED: 0, EXPIRED_UNFILLED: 0, AMBIGUOUS_ENTRY: 0, AMBIGUOUS_OUTCOME: 0, PENDING_ENTRY: 0 });
     g.n++;
     if (g[o.status] !== undefined) g[o.status]++;
   }
@@ -154,7 +118,7 @@ function summarise(outcomes, key) {
       else flag = 'no clear difference from 50%';
     }
     // INVALIDATED is reported as a count and rate, and is never part of win, loss or decisive counts.
-    return [name, { ...g, decisive, targetRate: ci.rate, targetRateLow95: ci.low, targetRateHigh95: ci.high, invalidatedRate: g.n ? Math.round(g.INVALIDATED / g.n * 1000) / 1000 : null, flag, label: 'HYPOTHETICAL' }];
+    return [name, { ...g, decisive, targetRate: ci.rate, targetRateLow95: ci.low, targetRateHigh95: ci.high, invalidatedRate: g.n ? Math.round(g.INVALIDATED / g.n * 1000) / 1000 : null, expiredUnfilledRate: g.n ? Math.round(g.EXPIRED_UNFILLED / g.n * 1000) / 1000 : null, pendingEntryRate: g.n ? Math.round(g.PENDING_ENTRY / g.n * 1000) / 1000 : null, flag, label: 'HYPOTHETICAL' }];
   }));
 }
 
@@ -165,6 +129,12 @@ function frozenLevels(signal, entry, stopLoss, takeProfit) {
 }
 
 // Resolves every open hypothetical that now has final evidence. Writes separate outcome records.
+// Market-style hypothetical fill: frozen quote plus modelled half-spread (decision 10).
+function marketCosts(d, dec) {
+  const f = entryStates.marketFill(dec.levels.action, dec.levels.entry, d.symbol);
+  return { entryFill: f.fill, costModel: f.costModel };
+}
+
 async function runMonitor(nowMs = Date.now()) {
   const decisions = (await storage.load('decisions')).map(normalizeDecision);
   let written = 0;
@@ -185,10 +155,15 @@ async function runMonitor(nowMs = Date.now()) {
     return changed ? updated : undefined;
   });
   const outcomes = await storage.load('no_trade_outcomes');
-  const final = new Set(outcomes.filter(o => o.status !== 'PENDING').map(o => o.decisionId));
+  const final = new Set(outcomes.filter(o => !['PENDING', 'PENDING_ENTRY'].includes(o.status)).map(o => o.decisionId));
   for (const d of decisions) {
     if (d.decision !== 'SKIPPED' || final.has(d.id)) continue;
-    const dec = { timestamp: d.timestamp, levels: d.levels || null, horizonMinutes: d.horizonMinutes || HORIZON_MINUTES };
+    // Entry fields are passed through: a LEVEL opportunity must be resolved as one (decision 10).
+    const dec = {
+      timestamp: d.timestamp, symbol: d.symbol, levels: d.levels || null, horizonMinutes: d.horizonMinutes || HORIZON_MINUTES,
+      entryType: d.entryType, entryLevel: d.entryLevel, invalidationLevel: d.invalidationLevel,
+      evidenceExpiresAt: d.evidenceExpiresAt, entryWindowCandles: d.entryWindowCandles
+    };
     if (!dec.levels) {
       // Not evaluable is final: there was nothing to freeze, so nothing is invented.
       await storage.append('no_trade_outcomes', { id: `OUT-${d.id}`, decisionId: d.id, symbol: d.symbol, reasonCode: d.reasonCode || reasonCode(d.skipReason, false), regime: d.regime || null, status: 'NOT_EVALUABLE', producedAt: new Date(nowMs).toISOString(), label: 'HYPOTHETICAL' });
@@ -198,17 +173,29 @@ async function runMonitor(nowMs = Date.now()) {
     const candles = marketData.getHistory(d.symbol, 6000, 'M1');
     const r = resolveOutcome(dec, candles, nowMs);
     if (r.status === 'UNRESOLVED') continue;
-    await storage.append('no_trade_outcomes', {
+    const costs = r.entryFill !== undefined ? {} : marketCosts(d, dec);
+    const record = {
       id: `OUT-${d.id}`, decisionId: d.id, symbol: d.symbol, reasonCode: d.reasonCode || reasonCode(d.skipReason, false), regime: d.regime || null,
-      strategy: d.strategy || null, horizonMinutes: dec.horizonMinutes, levels: dec.levels,
-      producedAt: new Date(nowMs).toISOString(), label: 'HYPOTHETICAL', ...r
-    });
+      strategy: d.strategy || null, horizonMinutes: dec.horizonMinutes, levels: dec.levels, entryType: dec.entryType || 'MARKET',
+      producedAt: new Date(nowMs).toISOString(), label: 'HYPOTHETICAL', ...costs, ...r
+    };
+    if (r.status === 'PENDING_ENTRY') {
+      // Open: stored once, updated each run until it resolves. Not a final outcome.
+      const existing = (await storage.load('no_trade_outcomes')).find(o => o.id === record.id);
+      if (existing) await storage.update('no_trade_outcomes', record.id, record);
+      else await storage.append('no_trade_outcomes', record);
+      continue;
+    }
+    // A pending record for this opportunity is resolved in place, never duplicated.
+    const prior = (await storage.load('no_trade_outcomes')).find(o => o.id === record.id);
+    if (prior) await storage.update('no_trade_outcomes', record.id, record);
+    else await storage.append('no_trade_outcomes', record);
     written++;
   }
   return { written };
 }
 
 module.exports = {
-  reasonCode, stateFor, normalizeDecision, resolveOutcome, checkInvalidation, wilson, summarise, frozenLevels, runMonitor,
+  reasonCode, stateFor, normalizeDecision, resolveOutcome, wilson, summarise, frozenLevels, runMonitor,
   HORIZON_MINUTES, MIN_DECISIVE_FOR_REVIEW
 };

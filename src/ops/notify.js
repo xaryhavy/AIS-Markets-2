@@ -42,15 +42,28 @@ function status(env = process.env) {
   };
 }
 
+// Removes every credential value from a message before it is logged or audited.
+function redact(message, cfg) {
+  let s = String(message);
+  if (cfg && cfg.token) s = s.split(cfg.token).join('[redacted]');
+  return s;
+}
+
 // Sends through Telegram. Uses the injected fetch in tests.
 async function sendTelegram(text, { env = process.env, fetchImpl = globalThis.fetch } = {}) {
   const cfg = telegramConfig(env);
   if (!cfg) throw new Error('telegram not configured');
-  const res = await fetchImpl(`https://api.telegram.org/bot${cfg.token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: cfg.chatId, text, disable_web_page_preview: true })
-  });
+  let res;
+  try {
+    res = await fetchImpl(`https://api.telegram.org/bot${cfg.token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: cfg.chatId, text, disable_web_page_preview: true })
+    });
+  } catch (e) {
+    // Network errors can echo the request URL, which holds the token. Never record it.
+    throw new Error(redact(e.message, cfg));
+  }
   if (!res.ok) throw new Error(`telegram responded ${res.status}`);
   return { channel: 'telegram' };
 }

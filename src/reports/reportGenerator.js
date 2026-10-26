@@ -62,7 +62,7 @@ function buildReport(period, { trades = [], decisions: rawDecisions = [], outcom
     label: 'HYPOTHETICAL — not executed, not profit or loss',
     outcomesRecorded: periodOutcomes.length,
     targetHit: count('TARGET_HIT'), stopHit: count('STOP_HIT'), expired: count('EXPIRED'),
-    ambiguous: count('AMBIGUOUS'), missingData: count('MISSING_DATA'), notEvaluable: count('NOT_EVALUABLE'), invalidated: count('INVALIDATED'),
+    ambiguous: count('AMBIGUOUS'), missingData: count('MISSING_DATA'), notEvaluable: count('NOT_EVALUABLE'), invalidated: count('INVALIDATED'), expiredUnfilled: count('EXPIRED_UNFILLED'), ambiguousEntry: count('AMBIGUOUS_ENTRY'), ambiguousOutcome: count('AMBIGUOUS_OUTCOME'), pendingEntry: count('PENDING_ENTRY'),
     byReasonCode: noTrade.summarise(periodOutcomes.filter(o => o.reasonCode), 'reasonCode')
   };
 

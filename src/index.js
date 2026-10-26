@@ -364,6 +364,14 @@ app.post('/api/legacy/archive', async (req, res) => {
 app.post('/api/legacy/archive/rollback', async (req, res) => {
   try { res.json(await require('./data/legacyArchive').rollback({ actor: 'owner' })); } catch (e) { res.status(409).json({ error: e.message }); }
 });
+// Decision records (item 6): read-only inventory, legacy tag plan, compaction dry run and its log. No apply route exists.
+app.get('/api/decisions/formats', async (req, res) => {
+  const lf = require('./governance/legacyFormats');
+  res.json(lf.inventory(await storage.load('decisions'), await storage.load('no_trade_outcomes')));
+});
+app.get('/api/decisions/legacy/plan', async (req, res) => res.json(require('./governance/legacyFormats').tagPlan(await storage.load('decisions'))));
+app.get('/api/decisions/compaction/plan', async (req, res) => res.json(await require('./governance/compaction').plan({ retentionDays: Number(req.query.retentionDays) || 30 })));
+app.get('/api/decisions/compaction/log', async (req, res) => res.json(await storage.load('decision_compaction_dryrun_log')));
 // Data gate: how many unexplained missing candles inside the lookback are tolerated before a block (default 0).
 app.get('/api/data/gate', (req, res) => res.json({ gapTolerance: require('./data/quality').getGapTolerance() }));
 app.post('/api/data/gate', async (req, res) => {
