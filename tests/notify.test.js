@@ -101,11 +101,24 @@ test('no more than twenty messages in any hour, across all codes', async () => {
   assert.match(over.reason, /hourly alert limit/);
 });
 
-test('with nodemailer installed, email alone enables alerts, and sends through the configured transport', async () => {
+// The result depends on whether `npm install` has been run: the package is declared, but a fresh clone may not have it.
+const HAS_NODEMAILER = (() => { try { require.resolve('nodemailer'); return true; } catch { return false; } })();
+
+test('email: alerts are enabled only when nodemailer is installed, and the status says which', () => {
   notify.resetForTests();
   const s = notify.status({ ...EMAIL_ENV });
-  assert.equal(s.email, 'configured');
-  assert.equal(s.alertsEnabled, true);
+  if (HAS_NODEMAILER) {
+    assert.equal(s.email, 'configured');
+    assert.equal(s.alertsEnabled, true);
+  } else {
+    assert.match(s.email, /nodemailer package is not installed/);
+    assert.equal(s.alertsEnabled, false);
+  }
+});
+
+test('email sends through the configured transport when nodemailer is installed', async () => {
+  notify.resetForTests();
+  if (!HAS_NODEMAILER) return; // run `npm install` to exercise this path
   const sent = [];
   const r = await notify.onOpened(alert('ENGINE_STALLED', 'high'), { env: EMAIL_ENV, fetchImpl: failFetch, transport: transportOk(sent), now: 7000 });
   assert.equal(r.sent, true);
