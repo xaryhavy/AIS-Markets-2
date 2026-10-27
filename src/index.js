@@ -1,4 +1,5 @@
-require('dotenv').config();
+// Load the .env that sits next to this project, whatever the working directory is (a preview or a service may start elsewhere).
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
