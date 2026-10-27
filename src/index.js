@@ -369,7 +369,6 @@ app.get('/api/decisions/formats', async (req, res) => {
   const lf = require('./governance/legacyFormats');
   res.json(lf.inventory(await storage.load('decisions'), await storage.load('no_trade_outcomes')));
 });
-app.get('/api/decisions/legacy/plan', async (req, res) => res.json(require('./governance/legacyFormats').tagPlan(await storage.load('decisions'))));
 app.get('/api/decisions/compaction/plan', async (req, res) => res.json(await require('./governance/compaction').plan({ retentionDays: Number(req.query.retentionDays) || 30 })));
 app.get('/api/decisions/compaction/log', async (req, res) => res.json(await storage.load('decision_compaction_dryrun_log')));
 // Data gate: how many unexplained missing candles inside the lookback are tolerated before a block (default 0).

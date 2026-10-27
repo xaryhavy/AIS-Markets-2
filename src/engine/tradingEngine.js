@@ -24,6 +24,7 @@ const mtmCaps = require('../risk/mtmCaps');
 const { ENGINE_MAX_AGE_MS } = require('../governance/readiness');
 const unmanaged = require('../execution/unmanaged');
 const compaction = require('../governance/compaction');
+const levelEntry = require('../governance/levelEntry');
 
 let engineInterval = null;
 let monitorInterval = null;
@@ -182,6 +183,8 @@ async function runCycle() {
       const atr0 = indicators.atr(dataQuality.completedBars(signal.symbol, 'M1', 60), 14);
       const stops0 = riskManager.calculateStops(signal.symbol, price0, signal.action, atr0);
       signal.levels = noTrade.frozenLevels(signal, price0, stops0.stopLoss, stops0.takeProfit);
+      // A strategy-defined entry condition freezes a level-style opportunity instead (decision 10). None is invented.
+      Object.assign(signal, levelEntry.freeze(signal, { calculateStops: riskManager.calculateStops, atr: atr0 }));
     }
     // Operating mode: decisions are still recorded, but no broker order is placed outside the order-placing modes.
     if (!mode.allowsBrokerOrders() && mode.current() !== 'PAPER') {

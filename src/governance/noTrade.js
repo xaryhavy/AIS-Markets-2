@@ -54,7 +54,9 @@ function normalizeDecision(d) {
 // Returns { status, resolvedAt, exitPrice, candlesScanned, note }.
 function resolveOutcome(dec, candles, nowMs) {
   if (dec.entryType === 'LEVEL') {
-    if (!dec.levels || !Number.isFinite(dec.entryLevel)) return { status: 'NOT_EVALUABLE', note: 'level entry without a defined entry level' };
+    if (!dec.levels || !Number.isFinite(dec.entryLevel) || !Number.isFinite(dec.invalidationLevel)) {
+      return { status: 'NOT_EVALUABLE', note: dec.notEvaluableReason || 'level entry without a defined entry or invalidation level' };
+    }
     return entryStates.resolveLevelOutcome(dec, candles, nowMs);
   }
   if (!dec.levels || ![dec.levels.entry, dec.levels.stopLoss, dec.levels.takeProfit].every(Number.isFinite)) {
@@ -162,7 +164,7 @@ async function runMonitor(nowMs = Date.now()) {
     const dec = {
       timestamp: d.timestamp, symbol: d.symbol, levels: d.levels || null, horizonMinutes: d.horizonMinutes || HORIZON_MINUTES,
       entryType: d.entryType, entryLevel: d.entryLevel, invalidationLevel: d.invalidationLevel,
-      evidenceExpiresAt: d.evidenceExpiresAt, entryWindowCandles: d.entryWindowCandles
+      evidenceExpiresAt: d.evidenceExpiresAt, entryWindowCandles: d.entryWindowCandles, notEvaluableReason: d.notEvaluableReason
     };
     if (!dec.levels) {
       // Not evaluable is final: there was nothing to freeze, so nothing is invented.

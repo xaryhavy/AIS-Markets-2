@@ -71,3 +71,9 @@ Goal 7 (safe operation) moves forward: loss caps, entry pause, owner stop route 
 - Item 10 (INVALIDATED and entry states): both entry types implemented and tested; the LEVEL producer is not built, so no pending-entry opportunities exist in live data yet.
 - Goal 2 (explainable TRADE/WAIT/NO-TRADE): NO-TRADE hypotheticals now carry a modelled entry fill and cost model, and entry-state outcomes are reported separately from win and loss.
 - Goal 7 (safe operation): owner alerts exist for the listed events. Telegram is unverified against a live bot.
+
+## Update - 2026-10-27
+- Item 6: built; not applied (no legacy format approved; nothing compactable yet).
+- Item 10: both entry types built; LEVEL opportunities come from strategy-defined entry conditions, none defined yet.
+- Telegram: unverified against a live bot (see docs/ALERTS_SETUP.md).
+- Suite: 315 pass.

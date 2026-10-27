@@ -29,15 +29,22 @@ async function recordDecision(signal, decisionInfo) {
     dataFingerprint: signal.dataFingerprint || null,
     // Frozen at decision time; never updated afterwards.
     levels,
-    horizonMinutes: levels ? noTrade.HORIZON_MINUTES : null
+    horizonMinutes: levels ? noTrade.HORIZON_MINUTES : null,
+    // Level-style opportunity, frozen at decision time (decision 10). Absent for market-style signals.
+    ...(signal.entryType === 'LEVEL' ? {
+      entryType: 'LEVEL', entryCondition: signal.entryCondition || null, entryLevel: signal.entryLevel ?? null,
+      invalidationLevel: signal.invalidationLevel ?? null, evidenceExpiresAt: signal.evidenceExpiresAt ?? null,
+      entryWindowCandles: signal.entryWindowCandles ?? null, notEvaluableReason: signal.notEvaluableReason ?? null
+    } : {})
   };
-  const waitWithLevels = decision === 'SKIPPED' && levels && noTrade.stateFor(decision, code) === 'WAIT';
+  // Only market-style repeats collapse; every level-style opportunity keeps its own full record.
+  const waitWithLevels = decision === 'SKIPPED' && levels && signal.entryType !== 'LEVEL' && noTrade.stateFor(decision, code) === 'WAIT';
   if (waitWithLevels) {
     // A repeat of the last logged WAIT for this symbol and reason is not logged again. Its frozen levels are kept
     // as a PENDING hypothetical in the outcome store, so every setup the monitor saw is still evaluated.
     const decisions = await storage.load('decisions');
     const last = [...decisions].reverse().find(d => d.symbol === signal.symbol);
-    if (last && last.decision === 'SKIPPED' && last.reasonCode === code && last.levels) {
+    if (last && last.decision === 'SKIPPED' && last.reasonCode === code && last.levels && last.entryType !== 'LEVEL') {
       await storage.append('no_trade_outcomes', {
         id: `OUT-PEND-${record.id}`,
         decisionId: record.id,

@@ -124,3 +124,16 @@ test('the scheduled dry run logs its plan, records no application, and changes n
   assert.equal(log[0].applied, false);
   assert.equal(log[0].compactable, p.compactable);
 });
+
+test('guard: a compaction run never compacts, archives or modifies a legacy-format record linked to an outcome', async () => {
+  const legacy = { id: 'LEG-1', timestamp: '2026-08-01T10:00:00Z', symbol: 'EURUSD', decision: { decision: 'SKIPPED', reason: 'Max exposure reached' } };
+  await storage.save('decisions', [legacy, ...decisions]);
+  await storage.save('no_trade_outcomes', [...outcomes, { id: 'OUT-LEG-1', decisionId: 'LEG-1', status: 'NOT_EVALUABLE' }]);
+  await storage.save('trades', trades);
+  await storage.save('data_gate_blocks', gateBlocks);
+  await storage.save(c.ARCHIVE, []);
+  await c.apply({ retentionDays: 30, now: NOW, actor: 'owner' });
+  const after = (await storage.load(c.DECISIONS)).find(d => d.id === 'LEG-1');
+  assert.deepEqual(after, legacy, 'byte-identical');
+  assert.equal((await storage.load(c.ARCHIVE)).some(d => d.id === 'LEG-1'), false, 'not archived');
+});
