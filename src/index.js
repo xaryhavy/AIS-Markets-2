@@ -39,6 +39,11 @@ const readiness = require('./governance/readiness');
 const engineHealth = require('./engine/tradingEngine');
 
 const app = express();
+// Express 4 does not catch errors from async handlers. Record them and keep the process running.
+process.on('unhandledRejection', (err) => {
+  console.log('[ERROR] unhandled: ' + (err && err.message ? err.message : String(err)));
+  try { audit.record('UNHANDLED_ERROR', { message: String(err && err.message ? err.message : err).slice(0, 300) }); } catch {}
+});
 const PORT = process.env.PORT || 37492;
 const ENV_PATH = path.join(__dirname, '..', '.env');
 
@@ -229,10 +234,12 @@ app.get('/api/analytics', async (req, res) => {
 // ============ PREFERENCES & STATUS ============
 app.get('/api/preferences', async (req, res) => res.json(await prefs.get()));
 app.post('/api/preferences', async (req, res) => {
-  const result = await prefs.set(req.body);
-  if (req.body.tradingEnabled === true) engine.start(5000);
-  if (req.body.tradingEnabled === false) engine.stop();
-  res.json(result);
+  try {
+    const result = await prefs.set(req.body || {});
+    if (req.body.tradingEnabled === true) engine.start(5000);
+    if (req.body.tradingEnabled === false) engine.stop();
+    res.json(result);
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.get('/api/status', async (req, res) => {
   const p = await prefs.get();
@@ -244,8 +251,10 @@ app.get('/api/status', async (req, res) => {
     marketConnected: marketData.isConnected ? marketData.isConnected() : false
   });
 });
+// Live trading is locked in this build. The request is refused and audited; it cannot switch anything on.
 app.post('/api/live/approve', async (req, res) => {
-  res.json(await prefs.set({ liveMode: req.body.approved === true }));
+  audit.record('LIVE_APPROVAL_REFUSED', { requested: req.body && req.body.approved === true });
+  res.status(409).json({ error: 'live trading is locked in this build; it needs a separate readiness review and explicit authorisation' });
 });
 
 // ============ MARKET DATA & SIGNALS ============
