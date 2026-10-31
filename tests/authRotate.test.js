@@ -4,34 +4,44 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-// Keep the owner token file out of the real data folder.
+// Keep the credentials file out of the real data folder.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ais-auth-'));
+process.env.AIS_USERS_FILE = path.join(dir, 'users.json');
 process.env.AIS_AUTH_FILE = path.join(dir, 'auth.json');
 const auth = require('../src/security/auth');
 
-test('rotation issues a new token and the old token stops working at once', async () => {
-  const first = await auth.init();
-  assert.ok(first, 'first run creates a token');
-  assert.equal(auth.verify(first), true);
-  const second = await auth.rotate();
-  assert.notEqual(second, first);
-  assert.equal(auth.verify(first), false, 'old token refused');
-  assert.equal(auth.verify(second), true, 'new token accepted');
+test('password change: old password stops working, new one works', async () => {
+  auth.resetForTests();
+  await auth.createUser('rotatetest', 'oldPass123');
+  assert.equal(auth.verify('rotatetest', 'oldPass123'), true);
+  await auth.changePassword('rotatetest', 'oldPass123', 'newPass456');
+  assert.equal(auth.verify('rotatetest', 'oldPass123'), false, 'old password refused');
+  assert.equal(auth.verify('rotatetest', 'newPass456'), true, 'new password accepted');
 });
 
-test('the token file keeps only a hash, never the new token, and records the rotation time', async () => {
-  const token = await auth.rotate();
-  const raw = fs.readFileSync(auth.AUTH_FILE, 'utf8');
-  assert.equal(raw.includes(token), false);
+test('the credential file keeps only a hash, never the password, and records the change time', async () => {
+  auth.resetForTests();
+  await auth.createUser('hashtest', 'testPass99');
+  await auth.changePassword('hashtest', 'testPass99', 'otherPass99');
+  const raw = fs.readFileSync(auth.USERS_FILE, 'utf8');
+  assert.equal(raw.includes('otherPass99'), false);
+  assert.equal(raw.includes('testPass99'), false);
   const saved = JSON.parse(raw);
-  assert.ok(saved.rotatedAt);
+  assert.ok(saved.passwordChangedAt);
   assert.ok(saved.createdAt);
 });
 
-test('a rotated token survives a restart (the file is reloaded)', async () => {
-  const token = await auth.rotate();
+test('a changed password survives a restart (the file is reloaded)', async () => {
+  auth.resetForTests();
+  await auth.createUser('persisttest', 'initPass12');
+  await auth.changePassword('persisttest', 'initPass12', 'laterPass34');
   delete require.cache[require.resolve('../src/security/auth')];
   const fresh = require('../src/security/auth');
-  assert.equal(await fresh.init(), null, 'no new token is created when one exists');
-  assert.equal(fresh.verify(token), true);
+  await fresh.init();
+  assert.equal(fresh.verify('persisttest', 'laterPass34'), true);
+  assert.equal(fresh.verify('persisttest', 'initPass12'), false);
+});
+
+test('rotate() is removed — use changePassword', async () => {
+  await assert.rejects(auth.rotate(), /use changePassword/);
 });

@@ -1,68 +1,121 @@
-// Owner authentication for the API. One owner role. The token is generated once, shown once in the server
-// console, and only a salted scrypt hash is stored. Nothing secret is written to the repository or logs.
+// Sign-in authentication — single local admin user.
+// Credentials are stored as a salted scrypt hash in data/users.json (never plaintext).
+// Sessions are managed by express-session; this module handles only user storage and verification.
 const crypto = require('crypto');
 const fs = require('fs-extra');
 const path = require('path');
 
-const AUTH_FILE = process.env.AIS_AUTH_FILE || path.join(__dirname, '../../data/auth.json'); // env override is for tests
+const USERS_FILE = process.env.AIS_USERS_FILE || process.env.AIS_AUTH_FILE || path.join(__dirname, '../../data/users.json');
 const KEY_LEN = 64;
 
-let stored = null; // { salt, hash, createdAt }
+// Keep AUTH_FILE alias for backwards compat with tests that check it
+const AUTH_FILE = USERS_FILE;
 
-function derive(token, salt) {
-  return crypto.scryptSync(token, Buffer.from(salt, 'hex'), KEY_LEN).toString('hex');
+let stored = null; // { username, salt, hash, createdAt }
+
+function derive(password, salt) {
+  return crypto.scryptSync(password, Buffer.from(salt, 'hex'), KEY_LEN).toString('hex');
 }
 
-// Creates the owner token on first run. Returns the new token (only on first run), else null.
+async function load() {
+  try {
+    const data = await fs.readJson(USERS_FILE);
+    // Support both new format { username, salt, hash } and legacy array
+    if (data && data.username && data.salt && data.hash) {
+      stored = data;
+    } else if (Array.isArray(data) && data[0] && data[0].username) {
+      stored = data[0];
+    } else {
+      stored = null;
+    }
+  } catch {
+    stored = null;
+  }
+  return stored;
+}
+
+async function save() {
+  await fs.ensureDir(path.dirname(USERS_FILE));
+  await fs.writeJson(USERS_FILE, stored, { spaces: 2 });
+}
+
+// Called at startup — loads existing user if any. Returns null (no auto-creation).
 async function init() {
-  stored = await fs.readJson(AUTH_FILE).catch(() => null);
-  if (stored && stored.hash && stored.salt) return null;
-  const token = crypto.randomBytes(32).toString('base64url');
-  const salt = crypto.randomBytes(16).toString('hex');
-  stored = { salt, hash: derive(token, salt), createdAt: new Date().toISOString() };
-  await fs.ensureDir(path.dirname(AUTH_FILE));
-  await fs.writeJson(AUTH_FILE, stored, { spaces: 2 });
-  return token;
-}
-
-// Replaces the owner token. The old token stops working at once. Returns the new token; only its hash is stored.
-async function rotate() {
-  const token = crypto.randomBytes(32).toString('base64url');
-  const salt = crypto.randomBytes(16).toString('hex');
-  const now = new Date().toISOString();
-  stored = { salt, hash: derive(token, salt), createdAt: stored?.createdAt || now, rotatedAt: now };
-  await fs.ensureDir(path.dirname(AUTH_FILE));
-  await fs.writeJson(AUTH_FILE, stored, { spaces: 2 });
-  return token;
+  await load();
+  return null;
 }
 
 function configured() {
-  return !!(stored && stored.hash);
+  return !!(stored && stored.hash && stored.salt && stored.username);
 }
 
-// Constant-time comparison of a presented token against the stored hash.
-function verify(token) {
-  if (!configured() || typeof token !== 'string' || token.length === 0 || token.length > 200) return false;
-  const a = Buffer.from(derive(token, stored.salt), 'hex');
+function getUsername() {
+  return stored ? stored.username : null;
+}
+
+// Create the first (and only) local admin account. Fails if one already exists.
+async function createUser(username, password) {
+  if (configured()) throw new Error('An account already exists — use login instead');
+  if (!username || typeof username !== 'string' || username.trim().length < 3 || username.trim().length > 32) {
+    throw new Error('Username must be 3-32 characters');
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(username.trim())) {
+    throw new Error('Username may only contain letters, numbers, dot, underscore and hyphen');
+  }
+  if (!password || typeof password !== 'string' || password.length < 8) {
+    throw new Error('Password must be at least 8 characters');
+  }
+  if (password.length > 128) throw new Error('Password must be at most 128 characters');
+  const clean = username.trim();
+  const salt = crypto.randomBytes(16).toString('hex');
+  stored = { username: clean, salt, hash: derive(password, salt), createdAt: new Date().toISOString() };
+  await save();
+  return { username: clean };
+}
+
+// Constant-time password verification for the single user.
+function verify(username, password) {
+  if (!configured() || typeof username !== 'string' || typeof password !== 'string') return false;
+  if (username.trim() !== stored.username) return false;
+  if (password.length === 0 || password.length > 200) return false;
+  const a = Buffer.from(derive(password, stored.salt), 'hex');
   const b = Buffer.from(stored.hash, 'hex');
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-// Failed-attempt limiter, per client address. After MAX_FAILURES wrong tokens inside WINDOW_MS the address is
-// locked for LOCK_MS. A correct token is still accepted while locked (checked before the lock), so guessing is
-// slowed without locking out the owner who holds the token.
+// Change password — requires old password verification.
+async function changePassword(username, oldPassword, newPassword) {
+  if (!configured()) throw new Error('No account configured');
+  if (!verify(username, oldPassword)) throw new Error('Current password is incorrect');
+  if (!newPassword || newPassword.length < 8) throw new Error('New password must be at least 8 characters');
+  if (newPassword.length > 128) throw new Error('New password must be at most 128 characters');
+  const salt = crypto.randomBytes(16).toString('hex');
+  stored = { ...stored, salt, hash: derive(newPassword, salt), passwordChangedAt: new Date().toISOString() };
+  await save();
+  return { username: stored.username };
+}
+
+// Legacy: rotate() kept as alias to changePassword for backwards compat if called without args — now throws.
+// New code should use changePassword. We keep a stub so old tests that import `rotate` fail clearly.
+async function rotate() {
+  throw new Error('Token rotation is removed — use changePassword instead');
+}
+
+// ── Rate limiter (per client address + username) ──
 const MAX_FAILURES = 5;
 const WINDOW_MS = 15 * 60000;
 const LOCK_MS = 15 * 60000;
-const failures = new Map(); // address -> { count, windowStart, lockedUntil }
+const failures = new Map(); // key -> { count, windowStart, lockedUntil }
 
-// Milliseconds the address stays locked, or 0.
+function failureKey(ip, username) {
+  return `${ip || 'unknown'}:${(username || '').toLowerCase().trim() || '_'}`;
+}
+
 function lockedFor(key, now = Date.now()) {
   const f = failures.get(key);
   return f && f.lockedUntil > now ? f.lockedUntil - now : 0;
 }
 
-// Records one wrong token. Returns the state, including lockedUntil when this failure triggered the lock.
 function recordFailure(key, now = Date.now()) {
   let f = failures.get(key);
   if (!f || now - f.windowStart > WINDOW_MS) f = { count: 0, windowStart: now, lockedUntil: 0 };
@@ -74,4 +127,14 @@ function recordFailure(key, now = Date.now()) {
 
 function clearFailures(key) { failures.delete(key); }
 
-module.exports = { init, rotate, verify, configured, AUTH_FILE, lockedFor, recordFailure, clearFailures, MAX_FAILURES, LOCK_MS };
+function resetForTests() {
+  stored = null;
+  failures.clear();
+}
+
+module.exports = {
+  init, configured, getUsername, createUser, verify, changePassword, rotate,
+  USERS_FILE, AUTH_FILE, derive, load,
+  lockedFor, recordFailure, clearFailures, failureKey, resetForTests,
+  MAX_FAILURES, LOCK_MS, WINDOW_MS, KEY_LEN,
+};

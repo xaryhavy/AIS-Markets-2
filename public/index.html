@@ -65,7 +65,13 @@ pre{background:#f8f9fa;padding:1rem;border-radius:8px;font-size:.75rem;overflow-
 </style>
 </head>
 <body>
+<div style="display:flex;justify-content:space-between;align-items:center;">
 <h1>AIS Markets — Autonomous Trading System</h1>
+<button class="secondary" onclick="doLogout()" style="white-space:nowrap;">Sign Out</button>
+</div>
+<script>
+async function doLogout(){ await fetch('/api/auth/logout',{method:'POST'}); location.href='/login.html'; }
+</script>
 
 <div class="card">
   <button id="statusButton" class="status-btn" onclick="toggleTrading()"></button>
@@ -179,22 +185,17 @@ pre{background:#f8f9fa;padding:1rem;border-radius:8px;font-size:.75rem;overflow-
 </div>
 
 <script>
-// Owner token: sent with every API call. If the server rejects it (or none is saved), ask once and keep it for this tab.
+// Session-based auth: on 401 redirect to login page.
 (function(){
   const realFetch = window.fetch.bind(window);
-  async function withToken(url, opts = {}) {
-    const isApi = String(url).startsWith('/api/') && !String(url).startsWith('/api/health');
-    if (!isApi) return realFetch(url, opts);
-    const send = t => realFetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-Owner-Token': t || '' } });
-    let token = sessionStorage.getItem('aisOwnerToken');
-    let res = await send(token);
-    if (res.status === 401) {
-      const entered = prompt('Enter the owner token (shown once in the server console at first start):');
-      if (entered) { sessionStorage.setItem('aisOwnerToken', entered.trim()); res = await send(entered.trim()); }
+  window.fetch = async function(url, opts){
+    const res = await realFetch(url, opts);
+    if (res.status === 401 && String(url).startsWith('/api/')) {
+      const isAuthCheck = String(url).includes('/api/auth/');
+      if (!isAuthCheck) location.href = '/login.html';
     }
     return res;
-  }
-  window.fetch = withToken;
+  };
 })();
 </script>
 <script>

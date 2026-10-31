@@ -31,6 +31,7 @@ const patternMiner = require('./intelligence/patternMiner');
 const realBacktest = require('./backtest/realBacktest');
 const mlModel = require('./intelligence/mlModel');
 const limits = require('./risk/limits');
+const session = require('express-session');
 const auth = require('./security/auth');
 const audit = require('./audit/audit');
 const mode = require('./governance/mode');
@@ -47,25 +48,124 @@ process.on('unhandledRejection', (err) => {
 const PORT = process.env.PORT || 37492;
 const ENV_PATH = path.join(__dirname, '..', '.env');
 
+// A known-default session secret would let anyone who read this file forge a sign-in cookie. Use the
+// environment when it is set, else a random secret generated once and kept in the data folder.
+function sessionSecret() {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  // Same data folder rule as the storage layer, so a test run never writes into the live data directory.
+  const file = path.join(process.env.AIS_DATA_DIR || path.join(__dirname, '..', 'data'), 'session-secret');
+  try {
+    const existing = fs.readFileSync(file, 'utf8').trim();
+    if (existing.length >= 32) return existing;
+  } catch {}
+  const secret = require('crypto').randomBytes(32).toString('hex');
+  fs.ensureDirSync(path.dirname(file));
+  fs.writeFileSync(file, secret, { mode: 0o600 });
+  return secret;
+}
+
 app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, '..', 'public')));
-// Owner authentication: every API route needs the owner token, except the health check.
+app.use(session({
+  secret: sessionSecret(),
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: 'lax', secure: false, maxAge: 24 * 60 * 60 * 1000 },
+}));
+// Pages are private except the sign-in page. A static file handed out before the session check would
+// expose the dashboard and setup page to anyone who can reach the port.
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const STATIC_PAGES = new Set(['/login.html']);
+const serveStatic = express.static(PUBLIC_DIR);
+app.use((req, res, next) => {
+  if (STATIC_PAGES.has(req.path)) return serveStatic(req, res, next);
+  if (req.session && req.session.user) return serveStatic(req, res, next);
+  // A page request for a private page lands on sign-in; anything else keeps its normal 404.
+  if (req.path === '/' || req.path === '/index.html' || req.path === '/setup.html') {
+    return res.redirect('/login.html');
+  }
+  next();
+});
+// Session-based sign-in: every API route except health and auth setup/login needs a session.
 app.use('/api', (req, res, next) => {
   if (req.path === '/health') return next();
-  const key = req.ip || 'unknown';
-  if (auth.verify(req.get('X-Owner-Token'))) { auth.clearFailures(key); return next(); }
-  const locked = auth.lockedFor(key);
-  if (locked > 0) {
-    res.set('Retry-After', String(Math.ceil(locked / 1000)));
-    return res.status(429).json({ error: 'too many failed attempts; try again later' });
-  }
-  const f = auth.recordFailure(key);
-  audit.record('AUTH_FAILED', { method: req.method, path: req.path, failures: f.count });
-  if (f.count === auth.MAX_FAILURES) audit.record('AUTH_LOCKED', { minutes: auth.LOCK_MS / 60000 });
-  res.status(401).json({ error: 'owner token required (X-Owner-Token header)' });
+  if (req.path.startsWith('/auth/')) return next();
+  if (req.session && req.session.user) return next();
+  res.status(401).json({ error: 'Please sign in', needsAuth: true });
 });
 app.use((req, res, next) => {
   next();
+});
+
+// ============ SIGN-IN (session-based) ============
+app.get('/api/auth/status', (req, res) => {
+  res.json({ configured: auth.configured(), hasUser: auth.configured(), username: auth.getUsername(), loggedIn: !!(req.session && req.session.user) });
+});
+
+app.post('/api/auth/setup', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    const result = await auth.createUser(username, password);
+    req.session.regenerate(err => {
+      if (err) return res.status(500).json({ error: 'Session error' });
+      req.session.user = { username: result.username };
+      audit.record('USER_CREATED', { username: result.username });
+      audit.record('LOGIN_SUCCESS', { username: result.username });
+      res.json({ ok: true, username: result.username });
+    });
+  } catch (e) {
+    // createUser throws if already configured — check if it's the "already exists" case
+    if (e.message.includes('already exists')) return res.status(409).json({ error: e.message });
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body || {};
+  const key = auth.failureKey(req.ip, username);
+  if (auth.lockedFor(key) > 0) {
+    res.set('Retry-After', String(Math.ceil(auth.lockedFor(key) / 1000)));
+    return res.status(429).json({ error: 'Too many failed attempts; try again later' });
+  }
+  if (!auth.configured()) return res.status(400).json({ error: 'No account yet — please create one first' });
+  if (!auth.verify(username, password)) {
+    const f = auth.recordFailure(key);
+    audit.record('LOGIN_FAILED', { username: (username || '').slice(0, 32), ip: req.ip, failures: f.count });
+    if (f.count === auth.MAX_FAILURES) audit.record('LOGIN_LOCKED', { minutes: auth.LOCK_MS / 60000 });
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+  auth.clearFailures(key);
+  req.session.regenerate(err => {
+    if (err) return res.status(500).json({ error: 'Session error' });
+    req.session.user = { username: auth.getUsername() };
+    audit.record('LOGIN_SUCCESS', { username: auth.getUsername() });
+    res.json({ ok: true, username: auth.getUsername() });
+  });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const username = req.session && req.session.user ? req.session.user.username : null;
+  req.session.destroy(err => {
+    if (username) audit.record('LOGOUT', { username });
+    res.clearCookie('connect.sid');
+    res.json({ ok: true });
+  });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  if (req.session && req.session.user) return res.json({ loggedIn: true, username: req.session.user.username });
+  res.json({ loggedIn: false });
+});
+
+app.post('/api/auth/change-password', async (req, res) => {
+  if (!req.session || !req.session.user) return res.status(401).json({ error: 'Please sign in' });
+  try {
+    const { oldPassword, newPassword } = req.body || {};
+    await auth.changePassword(req.session.user.username, oldPassword, newPassword);
+    audit.record('PASSWORD_CHANGED', { username: req.session.user.username });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 // ============ SETUP & AUTH ============
@@ -73,6 +173,9 @@ app.get('/', async (req, res) => {
   try {
     const hasEnv = await fs.pathExists(ENV_PATH);
     const hasTokens = await ctraderAuth.isAuthenticated();
+    // Sign-in is the gate for every page. No account yet, or no session, means the sign-in page.
+    if (!auth.configured() || !(req.session && req.session.user)) return res.redirect('/login.html');
+    // With a session in hand, a missing cTrader connection leads to the setup page.
     if (!hasEnv || !hasTokens) return res.sendFile(path.join(__dirname, '..', 'public', 'setup.html'));
     res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
   } catch {
@@ -328,12 +431,7 @@ app.get('/api/guardrails', async (req, res) => {
   const check = await guardrails.allowTrade('demo');
   res.json({ ...guardrails.fenceStatus(), limits: await guardrails.getLimits(), tradingAllowed: check.allow, blockReason: check.reason || null });
 });
-// Owner token rotation: the request itself needs the current token. The old token stops working immediately.
-app.post('/api/auth/rotate', async (req, res) => {
-  const token = await auth.rotate();
-  audit.record('AUTH_ROTATED', {});
-  res.json({ token, note: 'Store this token now. It is shown once and the previous token no longer works.' });
-});
+// Password change lives with the other sign-in routes, above.
 // Owner resumes new entries after a pause. Refused unless the last broker reconciliation succeeded.
 app.post('/api/engine/entries/resume', async (req, res) => {
   const r = await require('./engine/entryPause').resume({ reconcileOk: engineHealth.reconcileStatus().lastReconcileOk === true, actor: 'owner' });
@@ -473,7 +571,7 @@ app.get('/api/health', (req, res) => {
     feedReady: require('./ctrader/marketFeed').isReady(),
     engineAgeMs: engineHealth.engineAgeMs(),
     lastReconcileOk: rs.lastReconcileOk,
-    authConfigured: auth.configured(),
+    authConfigured: auth.configured(), // sign-in account configured
     auditOk: v.ok,
     auditBrokenAt: v.brokenAt
   }));
@@ -542,12 +640,7 @@ process.on('SIGTERM', requestShutdown);
   await patternMiner.init();
   await mlModel.init();
   await limits.init();
-  const newToken = await auth.init();
-  if (newToken) {
-    console.log('[AUTH] Owner token created. It is shown ONCE. Copy it now; only a hash is stored:');
-    console.log('[AUTH] ' + newToken);
-    audit.record('OWNER_TOKEN_CREATED', {});
-  }
+  await auth.init();
   await mode.init();
   await alerts.init();
   audit.record('STARTUP', { mode: mode.current() });

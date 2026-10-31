@@ -19,17 +19,20 @@ const alerts = require('../src/ops/alerts');
 const preTrade = require('../src/risk/preTrade');
 const limits = require('../src/risk/limits');
 
-test('owner token: created once, verified in constant time, never stored in plain text', async () => {
-  const token = await auth.init();
-  assert.equal(typeof token, 'string');
-  assert.ok(token.length >= 40);
-  assert.equal(auth.verify(token), true);
-  assert.equal(auth.verify(token + 'x'), false);
-  assert.equal(auth.verify('wrong'), false);
-  assert.equal(auth.verify(undefined), false);
-  assert.equal(auth.verify(''), false);
-  assert.equal(await auth.init(), null, 'second start does not create another token');
-  assert.equal(fs.readFileSync(process.env.AIS_AUTH_FILE, 'utf8').includes(token), false, 'token must not be on disk');
+test('sign-in: account created once, verified in constant time, never stored in plain text', async () => {
+  auth.resetForTests();
+  const r = await auth.createUser('testuser', 's3cureP@ss!');
+  assert.equal(r.username, 'testuser');
+  assert.equal(auth.configured(), true);
+  assert.equal(auth.verify('testuser', 's3cureP@ss!'), true);
+  assert.equal(auth.verify('testuser', 's3cureP@ss!x'), false);
+  assert.equal(auth.verify('testuser', 'wrong'), false);
+  assert.equal(auth.verify('other', 's3cureP@ss!'), false);
+  assert.equal(auth.verify('testuser', ''), false);
+  await assert.rejects(auth.createUser('other', 'another1!'), /already exists/);
+  const raw = fs.readFileSync(auth.USERS_FILE, 'utf8');
+  assert.equal(raw.includes('s3cureP@ss!'), false, 'password must not be on disk');
+  assert.ok(JSON.parse(raw).hash.length >= 40);
 });
 
 test('audit: a clean chain verifies, and the count is right', () => {

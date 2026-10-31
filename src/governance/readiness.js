@@ -35,7 +35,7 @@ function health(s) {
     engine: s.engineAgeMs === null || s.engineAgeMs === undefined ? 'not running'
       : s.engineAgeMs <= ENGINE_MAX_AGE_MS ? 'ok' : `stale (${Math.round(s.engineAgeMs / 1000)}s since last cycle)`,
     reconciliation: s.lastReconcileOk === true ? 'ok' : s.lastReconcileOk === false ? 'last reconciliation failed' : 'never run',
-    auth: s.authConfigured ? 'ok' : 'owner token not configured',
+    auth: s.authConfigured ? 'ok' : 'sign-in account not configured',
     audit: s.auditOk ? 'ok' : `chain broken at entry ${s.auditBrokenAt}`
   };
   const healthy = Object.values(components).every(v => v === 'ok');

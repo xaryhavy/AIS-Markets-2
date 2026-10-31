@@ -1,10 +1,12 @@
 # Operations and Autonomy Controls — Priority 6 (2026-10-26)
 
 ## Built and tested
-- **API authentication** (src/security/auth.js, src/index.js middleware). Every /api route except /api/health needs the owner token in the X-Owner-Token header. The token is generated on first start, printed once to the server console, and only a salted scrypt hash is stored in data/auth.json. Verification is constant-time. Failed attempts are audited. The wildcard CORS header was removed.
-  - Dashboard and setup page send the token and ask for it once per tab when it is missing or rejected (public/index.html, public/setup.html).
+- **API authentication** (src/security/auth.js, src/index.js middleware). Sign-in with a username and password, held in a session cookie (express-session). One local account. The password is stored only as a salted scrypt hash in data/users.json; verification is constant-time. Every /api route except /api/health and /api/auth/status needs a signed-in session. The pages themselves are private too: /index.html and /setup.html redirect to /login.html unless signed in. Failed attempts are audited and lock the address after 5. The wildcard CORS header was removed.
+  - First run with no account shows the create-account form on /login.html. Changing the password needs the current password and keeps the session.
+  - The session secret comes from SESSION_SECRET, else a random value generated once into data/session-secret. There is no default secret in the source.
+  - Signing in replaces the earlier owner-token scheme (X-Owner-Token header, data/auth.json). An existing data/auth.json is ignored; a new account is created on the sign-in page.
 - **Operating modes** (src/governance/mode.js). OBSERVATION and RESEARCH place no broker orders. DEMO_AUTONOMOUS (the existing behaviour, default) places demo orders within the risk limits. PAPER, DEMO_SUPERVISED and LIVE are listed as unavailable and cannot be selected. Selecting an order-placing mode requires the exact phrase "CONFIRM <MODE>". Changes are recorded with source and time. The order boundary refuses broker orders in a non-order mode (src/risk/preTrade.js). Decisions are still recorded in every mode.
-- **Audit trail** (src/audit/audit.js). Append-only, hash-chained: each entry holds the hash of the one before. verify() recomputes the chain and reports the first broken entry. Recorded: startup, shutdown request, owner token created, failed authentication, mode changes, limit proposals/approvals/rejections, emergency stop on/off, recovery acknowledgement, order submission/refusal/fill, unknown outcome, protection failure, emergency close, position adoption, alert opened/resolved.
+- **Audit trail** (src/audit/audit.js). Append-only, hash-chained: each entry holds the hash of the one before. verify() recomputes the chain and reports the first broken entry. Recorded: startup, shutdown request, account created, sign-in success, sign-in failure, sign-out, password changed, mode changes, limit proposals/approvals/rejections, emergency stop on/off, recovery acknowledgement, order submission/refusal/fill, unknown outcome, protection failure, emergency close, position adoption, alert opened/resolved.
 - **Alerts** (src/ops/alerts.js). Opened when a condition appears, resolved when it clears, both audited. Conditions: unresolved orders (critical), unmanaged positions (critical), recovery review (critical), reconciliation failure (high), emergency stop (high), broker or feed down (high), no broker orders in this mode (info).
 - **Readiness** (src/governance/readiness.js). Execution is enabled, disabled (with reasons), or uncertain. Uncertainty outranks everything. "autonomous" is true only in DEMO_AUTONOMOUS with execution enabled.
 - **Health** (GET /api/health, open). Components: broker, feed, engine, reconciliation, auth, audit. Overall "healthy" only if every component is ok.
@@ -15,19 +17,20 @@ tests/operations.test.js: 13 tests (token creation, verification, no plaintext o
 Full suite: 122 pass in both folders.
 
 ## Live boot check (worktree, trading switched off, base .env)
-- /api/health without token: 200, status degraded (broker still connecting, engine not running), correct.
-- /api/readiness without token: 401.
-- /api/readiness with token: executionState disabled, reasons: automatic trading switched off by owner; broker state APP_AUTHENTICATED; live price feed not ready.
-- /api/audit/verify: ok, 3 entries (owner token created, startup, one failed authentication).
+- /api/health without a session: 200, status degraded (broker still connecting, engine not running), correct.
+- /api/readiness without a session: 401.
+- /api/readiness with a session: executionState disabled, reasons: automatic trading switched off by owner; broker state APP_AUTHENTICATED; live price feed not ready.
+- /index.html, /setup.html and / without a session: 302 to /login.html.
+- /api/audit/verify: ok, entries include account created, startup and one failed sign-in.
 - Access-Control headers: none.
 
 ## Not done (Priority 6 items)
 - PAPER (simulated fills) and DEMO_SUPERVISED (per-trade owner confirmation) are not implemented; they are refused, not faked.
-- Rate limiting on failed authentication attempts.
-- Single owner token: no rotation endpoint. Rotation means deleting data/auth.json and restarting; the new token is shown once.
+- One account only: there is no user list, no second owner and no password recovery. A forgotten password means deleting data/users.json and creating an account again.
+- Sessions are held in process memory, so a restart signs everyone out.
 - Structured logs: console output is unchanged; the audit trail is the structured record of critical events.
 - Alert delivery outside the dashboard (email, phone): none.
-- The HTML pages themselves are served without a token (they contain no data); all data routes require it.
+- The session cookie is not marked Secure, because the app serves plain http on localhost. A deployment behind a proxy over https should set SESSION_SECRET and mark the cookie Secure.
 - Mode changes that loosen authority are confirmed by phrase only; there is no second approver.
 
 ## Incident found during verification (fixed)

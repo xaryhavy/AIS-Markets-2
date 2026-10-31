@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AIS Markets — Sign In</title>
+<style>
+*{box-sizing:border-box;font-family:-apple-system,sans-serif;margin:0;padding:0;}
+body{max-width:420px;margin:4rem auto;padding:0 1rem;background:#f8f9fa;color:#1a1a1a;}
+h1{font-size:1.5rem;margin-bottom:.5rem;}
+.sub{color:#666;font-size:.9rem;margin-bottom:1.5rem;}
+.card{background:#fff;border-radius:12px;padding:2rem;box-shadow:0 2px 8px rgba(0,0,0,.08);}
+label{display:block;margin:1rem 0 .3rem;font-weight:600;font-size:.85rem;}
+input{width:100%;padding:.7rem;border:1px solid #ddd;border-radius:8px;font-size:.95rem;}
+input:focus{outline:none;border-color:#0f7c2f;}
+button{width:100%;padding:.8rem;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;margin-top:1.2rem;}
+.btn-primary{background:#0f7c2f;color:#fff;}
+.btn-primary:hover{background:#0a5c22;}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed;}
+.msg{padding:.7rem;border-radius:8px;margin-top:1rem;font-size:.85rem;display:none;}
+.msg.show{display:block;}
+.msg.error{background:#ffebee;color:#c62828;}
+.msg.ok{background:#e6f9e9;color:#0f7c2f;}
+small{color:#666;font-size:.8rem;margin-top:.5rem;display:block;}
+a{color:#0f7c2f;}
+</style>
+</head>
+<body>
+<h1 id="title">Sign In</h1>
+<p class="sub" id="subtitle">Enter your credentials to continue.</p>
+<div class="card">
+  <form id="form" onsubmit="return handleSubmit(event)">
+    <label for="username">Username</label>
+    <input id="username" autocomplete="username" placeholder="your username">
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" placeholder="at least 8 characters">
+    <div id="confirmWrap" style="display:none;">
+      <label for="confirm">Confirm password</label>
+      <input id="confirm" type="password" autocomplete="new-password" placeholder="repeat password">
+    </div>
+    <button type="submit" class="btn-primary" id="submitBtn">Sign In</button>
+  </form>
+  <div id="msg" class="msg"></div>
+  <small id="hint"></small>
+</div>
+<script>
+let isSetup = false;
+
+async function checkStatus(){
+  try{
+    const r = await fetch('/api/auth/status');
+    const s = await r.json();
+    if (!s.configured) {
+      isSetup = true;
+      document.getElementById('title').textContent = 'Create Your Account';
+      document.getElementById('subtitle').textContent = 'No account exists yet. Create the first admin account — this only happens once.';
+      document.getElementById('submitBtn').textContent = 'Create Account';
+      document.getElementById('confirmWrap').style.display = 'block';
+      document.getElementById('hint').textContent = 'Username 3-32 characters (letters, numbers, dot, underscore, hyphen). Password at least 8 characters.';
+    } else {
+      // Already has a user — check if already logged in, then redirect
+      const me = await fetch('/api/auth/me').then(r=>r.json()).catch(()=>({loggedIn:false}));
+      if (me.loggedIn) { location.href = '/'; return; }
+      document.getElementById('hint').innerHTML = 'No account yet? It should have been created on first run — check <a href="/api/auth/status">status</a>.';
+    }
+  }catch(e){
+    showMsg('Could not reach server: ' + e.message, 'error');
+  }
+}
+
+function showMsg(text, kind){
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg show ' + (kind || 'error');
+}
+
+async function handleSubmit(e){
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const confirm = document.getElementById('confirm').value;
+  const btn = document.getElementById('submitBtn');
+  if (!username || !password) { showMsg('Username and password are required', 'error'); return false; }
+  if (isSetup && password !== confirm) { showMsg('Passwords do not match', 'error'); return false; }
+  btn.disabled = true;
+  btn.textContent = isSetup ? 'Creating…' : 'Signing in…';
+  try{
+    const url = isSetup ? '/api/auth/setup' : '/api/auth/login';
+    const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
+    const data = await res.json();
+    if (!res.ok) { showMsg(data.error || 'Failed', 'error'); btn.disabled=false; btn.textContent=isSetup?'Create Account':'Sign In'; return false; }
+    showMsg(isSetup ? 'Account created — redirecting…' : 'Signed in — redirecting…', 'ok');
+    setTimeout(()=> location.href='/', 400);
+  }catch(err){
+    showMsg(err.message, 'error');
+    btn.disabled=false; btn.textContent=isSetup?'Create Account':'Sign In';
+  }
+  return false;
+}
+
+checkStatus();
+</script>
+</body>
+</html>
