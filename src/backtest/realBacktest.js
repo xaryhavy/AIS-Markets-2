@@ -50,7 +50,8 @@ async function runOnLiveHistory(options = {}, { learn = true } = {}) {
       H1: marketData.getHistory(symbol, 2000, 'H1')
     };
     for (const strategy of listStrategies()) {
-      const r = backtest.runBacktest(strategy, {}, { ...options, history, includeTrades: true });
+      // These are real cTrader bars, and the result says so. Costs and the ambiguity policy come from the caller.
+      const r = backtest.runBacktest(strategy, {}, { ...options, history, dataSource: 'CTRADER_BARS', includeTrades: true });
       if (r.error) continue;
       const trades = r.allTrades.map(t => ({
         symbol,

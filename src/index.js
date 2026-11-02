@@ -399,16 +399,24 @@ app.get('/api/positions', async (req, res) => res.json(await riskManager.getOpen
 // ============ INTELLIGENCE TOOLS ============
 app.get('/api/strategies', (req, res) => res.json(listStrategies()));
 app.get('/api/adaptive/stats', async (req, res) => res.json(await adaptiveLearner.getStats()));
+// Synthetic development runs. Every result carries dataSource: 'SYNTHETIC' and its cost model, so it can
+// never be read as broker evidence. Costs and the ambiguity policy may be supplied explicitly.
 app.post('/api/backtest/run', (req, res) => {
-  const { strategy, params, options } = req.body || {};
-  if (strategy) res.json(backtest.runBacktest(strategy, params || {}, options || {}));
-  else res.json(backtest.backtestAll(options || {}));
+  const { strategy, params, options, costs, ambiguityPolicy } = req.body || {};
+  const opts = { ...(options || {}), ...(costs ? { costs } : {}), ...(ambiguityPolicy ? { ambiguityPolicy } : {}) };
+  try {
+    if (strategy) res.json(backtest.runBacktest(strategy, params || {}, opts));
+    else res.json(backtest.backtestAll(opts));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 // Real cTrader bars instead of synthetic history; results feed the adaptive learner.
 app.post('/api/backtest/live', async (req, res) => {
   try {
-    const { options, learn } = req.body || {};
-    const results = await realBacktest.runOnLiveHistory(options || {}, { learn: learn !== false });
+    const { options, learn, costs, ambiguityPolicy } = req.body || {};
+    const opts = { ...(options || {}), ...(costs ? { costs } : {}), ...(ambiguityPolicy ? { ambiguityPolicy } : {}) };
+    const results = await realBacktest.runOnLiveHistory(opts, { learn: learn !== false });
     // The ML model learns from the new trades and reports whether it is good enough to act on.
     const model = await mlModel.retrain();
     res.json({ results, model });
@@ -419,9 +427,14 @@ app.post('/api/backtest/live', async (req, res) => {
 app.get('/api/ml/status', (req, res) => res.json(mlModel.status()));
 app.post('/api/ml/retrain', async (req, res) => res.json(await mlModel.retrain()));
 app.post('/api/optimize/run', (req, res) => {
-  const { strategy, paramGrid, options } = req.body || {};
-  if (strategy) res.json(optimizer.gridSearch(strategy, paramGrid || {}, options || {}));
-  else res.json(optimizer.optimizeAll(options || {}));
+  const { strategy, paramGrid, options, costs, ambiguityPolicy } = req.body || {};
+  const opts = { ...(options || {}), ...(costs ? { costs } : {}), ...(ambiguityPolicy ? { ambiguityPolicy } : {}) };
+  try {
+    if (strategy) res.json(optimizer.gridSearch(strategy, paramGrid || {}, opts));
+    else res.json(optimizer.optimizeAll(opts));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 app.post('/api/reports/generate', async (req, res) => res.json(await reportGenerator.generateAll()));
 app.post('/api/shadows/evaluate', async (req, res) => res.json(await shadowTracker.evaluateShadows()));

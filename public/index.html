@@ -225,7 +225,14 @@ async function runBacktestAll(){
   out.style.display='block';out.textContent='Running backtests...';
   try{
     const r=await(await fetch('/api/backtest/run',{method:'POST'})).json();
-    out.textContent='BACKTEST RESULTS (sorted by Sharpe):\n\n'+r.map(x=>`${x.strategy}: Return ${x.totalReturnPct}% | Win ${x.winRate}% | PF ${x.profitFactor} | MaxDD ${x.maxDrawdownPct}% | Sharpe ${x.sharpeRatio} | Trades ${x.totalTrades}`).join('\n');
+    if(r.error){ out.textContent='Error: '+r.error; return; }
+    const h=r[0]||{};
+    const banner=h.dataSource==='SYNTHETIC'
+      ? '⚠ SYNTHETIC DATA — random-walk history. This is not market evidence.\n   Use “Backtest on live bars” for real cTrader history.\n'
+      : `Data source: ${h.dataSource||'UNKNOWN'}\n`;
+    out.textContent='BACKTEST RESULTS (sorted by Sharpe)\n'+banner+
+      `Costs: ${h.costAssumption||'n/a'} | Ambiguity: ${h.ambiguityPolicy||'n/a'}\n\n`+
+      r.map(x=>`${x.strategy}: Return ${x.totalReturnPct}% | Win ${x.winRate}% | PF ${x.profitFactor} | MaxDD ${x.maxDrawdownPct}% | Sharpe ${x.sharpeRatio} | Trades ${x.totalTrades}${x.ambiguousTrades?' | Ambiguous '+x.ambiguousTrades:''}`).join('\n');
   }catch(e){ out.textContent='Error: '+e.message; }
 }
 async function runOptimizeAll(){
@@ -233,7 +240,12 @@ async function runOptimizeAll(){
   out.style.display='block';out.textContent='Optimizing all strategies (grid search)...';
   try{
     const r=await(await fetch('/api/optimize/run',{method:'POST'})).json();
-    out.textContent='OPTIMIZED PARAMETERS (best per strategy):\n\n'+Object.entries(r).map(([k,v])=>v?`${k}: Sharpe ${v.sharpeRatio} | Return ${v.totalReturnPct}% | Params ${JSON.stringify(v.params)}`:`${k}: no result`).join('\n');
+    if(r.error){ out.textContent='Error: '+r.error; return; }
+    const best=Object.values(r).find(v=>v&&v.dataSource)||{};
+    const banner=best.dataSource==='SYNTHETIC'
+      ? '⚠ SYNTHETIC DATA — random-walk history. Parameters chosen here are not market evidence.\n\n'
+      : `Data source: ${best.dataSource||'UNKNOWN'}\n\n`;
+    out.textContent=banner+'OPTIMIZED PARAMETERS (best per strategy):\n\n'+Object.entries(r).map(([k,v])=>v?`${k}: Sharpe ${v.sharpeRatio} | Return ${v.totalReturnPct}% | Params ${JSON.stringify(v.params)}${v.ambiguousTrades?' | Ambiguous '+v.ambiguousTrades:''}`:`${k}: no result`).join('\n');
   }catch(e){ out.textContent='Error: '+e.message; }
 }
 
