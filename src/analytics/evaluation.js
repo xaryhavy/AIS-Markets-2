@@ -81,6 +81,20 @@ function significanceAfterMultipleTesting(result, strategiesTested = 1, alpha = 
   };
 }
 
+// The same test applied to a plain P&L series, for callers that do not hold full trade records
+// (the pattern miner works from trade features and P&L only). Same sample-size rule, same correction.
+function significanceOf(pnlValues, { strategiesTested = 1, alpha = 0.05 } = {}) {
+  const vals = (pnlValues || []).map(Number).filter(Number.isFinite);
+  const n = vals.length;
+  const mean = n ? vals.reduce((s, x) => s + x, 0) / n : null;
+  const sd = n > 1 ? Math.sqrt(vals.reduce((s, x) => s + (x - mean) ** 2, 0) / (n - 1)) : null;
+  return significanceAfterMultipleTesting({
+    sampleSize: n,
+    sufficientSample: n >= MIN_SAMPLE,
+    tStatistic: n > 1 && sd > 0 ? mean / (sd / Math.sqrt(n)) : null
+  }, strategiesTested, alpha);
+}
+
 // Inverse normal CDF (Acklam approximation), enough for the thresholds used here.
 function normalQuantile(p) {
   const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.3577518672690, -30.66479806614716, 2.506628277459239];
@@ -94,4 +108,4 @@ function normalQuantile(p) {
   return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
 }
 
-module.exports = { evaluate, outOfSample, significanceAfterMultipleTesting, exactResults, MIN_SAMPLE };
+module.exports = { evaluate, outOfSample, significanceAfterMultipleTesting, significanceOf, exactResults, MIN_SAMPLE };

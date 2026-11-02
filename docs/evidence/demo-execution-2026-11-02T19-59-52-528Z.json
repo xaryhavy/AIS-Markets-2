@@ -1,0 +1,135 @@
+{
+  "startedAt": "2026-11-02T19:59:52.528Z",
+  "symbol": "EURUSD",
+  "execute": true,
+  "stages": [
+    {
+      "at": "2026-11-02T20:00:23.459Z",
+      "stage": "connected",
+      "account": "Connected to demo account DEMO-ACCOUNT",
+      "balance": 9749.07
+    },
+    {
+      "at": "2026-11-02T20:00:23.701Z",
+      "stage": "planned",
+      "order": {
+        "symbol": "EURUSD",
+        "action": "BUY",
+        "units": 1000,
+        "stopLoss": 1.1193,
+        "takeProfit": 1.12019,
+        "atr": 0.00014785714285714402,
+        "riskReward": 2.9555555555572224
+      }
+    },
+    {
+      "at": "2026-11-02T20:00:24.926Z",
+      "stage": "filled",
+      "intentId": "INT-1793649624156-clpbie",
+      "positionId": 256532679,
+      "orderId": 372557744,
+      "entryPrice": 1.11954,
+      "volume": 100000,
+      "units": 1000
+    },
+    {
+      "at": "2026-11-02T20:00:25.136Z",
+      "stage": "protection_read_back",
+      "position": {
+        "positionId": 256532679,
+        "symbolId": 1,
+        "volume": 100000,
+        "entryPrice": 1.11954,
+        "stopLoss": 1.1193,
+        "takeProfit": 1.12019
+      },
+      "protectedOk": true
+    },
+    {
+      "at": "2026-11-02T20:00:25.656Z",
+      "stage": "closed",
+      "exitPrice": 1.11954,
+      "pnl": -0.06,
+      "positionId": 256532679
+    },
+    {
+      "at": "2026-11-02T20:00:26.093Z",
+      "stage": "intent_record",
+      "status": "CLOSED"
+    }
+  ],
+  "ok": true,
+  "operatingMode": "DEMO_AUTONOMOUS",
+  "modeAllowsBrokerOrders": true,
+  "environment": "demo",
+  "connection": {
+    "state": "ACCOUNT_AUTHENTICATED",
+    "message": "Connected to demo account DEMO-ACCOUNT"
+  },
+  "balance": {
+    "amount": 9749.07,
+    "updatedAt": "2026-11-02T19:59:54.027Z"
+  },
+  "feedReady": true,
+  "openPositionsBefore": [],
+  "quote": {
+    "bid": 1.11952,
+    "ask": 1.11953,
+    "price": 1.1195249999999999,
+    "spreadPips": 0.1
+  },
+  "brokerMinimum": {
+    "minVolumeCents": 100000,
+    "stepVolumeCents": 100000,
+    "digits": 5
+  },
+  "planned": {
+    "symbol": "EURUSD",
+    "action": "BUY",
+    "units": 1000,
+    "stopLoss": 1.1193,
+    "takeProfit": 1.12019,
+    "atr": 0.00014785714285714402,
+    "riskReward": 2.9555555555572224
+  },
+  "order": {
+    "intentId": "INT-1793649624156-clpbie",
+    "positionId": 256532679,
+    "orderId": 372557744,
+    "entryPrice": 1.11954,
+    "volume": 100000,
+    "units": 1000
+  },
+  "brokerPositionAfterFill": {
+    "positionId": 256532679,
+    "symbolId": 1,
+    "volume": 100000,
+    "entryPrice": 1.11954,
+    "stopLoss": 1.1193,
+    "takeProfit": 1.12019
+  },
+  "protectionVerified": true,
+  "close": {
+    "exitPrice": 1.11954,
+    "pnl": -0.06,
+    "positionId": 256532679
+  },
+  "closedConfirmedByBroker": true,
+  "intentRecord": {
+    "id": "INT-1793649624156-clpbie",
+    "status": "CLOSED",
+    "symbol": "EURUSD",
+    "symbolId": 1,
+    "action": "BUY",
+    "volume": 100000,
+    "stopLoss": 1.1193,
+    "takeProfit": 1.12019,
+    "createdAt": "2026-11-02T20:00:24.156Z",
+    "positionId": 256532679,
+    "filledVolume": 100000,
+    "entryPrice": 1.11954,
+    "updatedAt": "2026-11-02T20:00:25.645Z"
+  },
+  "finishedAt": "2026-11-02T20:00:26.093Z",
+  "accountIdentifierRedacted": "DEMO-ACCOUNT — verbatim copy with the real account number kept in the gitignored data/evidence-raw/"
+}

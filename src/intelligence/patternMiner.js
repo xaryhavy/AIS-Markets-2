@@ -4,8 +4,9 @@
 const fs = require('fs-extra');
 const path = require('path');
 const storage = require('../data/storage');
+const evaluation = require('../analytics/evaluation');
 
-const PROPOSALS_FILE = path.join(__dirname, '../../data/proposals.json');
+const PROPOSALS_FILE = process.env.AIS_PROPOSALS_FILE || path.join(__dirname, '../../data/proposals.json'); // env override is for tests
 const MIN_IN_SAMPLE = 30;
 const MIN_OUT_OF_SAMPLE = 10;
 const MIN_WIN_IN = 0.55;
@@ -73,13 +74,20 @@ function findRules(trades) {
   });
 
   const found = [];
+  // Every rule below was one of `index.size` rules examined, and each one is judged against a threshold
+  // divided by that number (Bonferroni). This is the correction the search itself makes necessary.
+  const candidatesTested = index.size;
   for (const [key, { tokens, members }] of index) {
     const inS = stats(members.filter(p => p < cut).map(p => usable[p]));
     const outS = stats(members.filter(p => p >= cut).map(p => usable[p]));
     if (inS.n < MIN_IN_SAMPLE || outS.n < MIN_OUT_OF_SAMPLE) continue;
     if (inS.winRate < MIN_WIN_IN || inS.avgPnl <= 0) continue;
     if (outS.winRate < MIN_WIN_OUT || outS.avgPnl <= 0) continue;
-    found.push({ key, tokens, inSample: inS, outOfSample: outS });
+    // Significance is computed on the held-back trades only, and reported rather than hidden: a rule
+    // that does not clear the corrected threshold carries that verdict on its own record.
+    const outPnls = members.filter(p => p >= cut).map(p => usable[p].pnl);
+    const significance = evaluation.significanceOf(outPnls, { strategiesTested: candidatesTested });
+    found.push({ key, tokens, inSample: inS, outOfSample: outS, candidatesTested, significance });
   }
   return found.sort((a, b) => b.outOfSample.avgPnl - a.outOfSample.avgPnl).slice(0, TOP_N);
 }
@@ -93,6 +101,8 @@ async function mine(liveTrades, backtestTrades) {
     if (existing) {
       existing.inSample = r.inSample;
       existing.outOfSample = r.outOfSample;
+      existing.candidatesTested = r.candidatesTested;
+      existing.significance = r.significance;
       existing.lastMinedAt = now;
       continue;
     }
@@ -102,6 +112,8 @@ async function mine(liveTrades, backtestTrades) {
       description: r.tokens.join(' AND '),
       inSample: r.inSample,
       outOfSample: r.outOfSample,
+      candidatesTested: r.candidatesTested,
+      significance: r.significance,
       status: 'PROPOSED',
       proposedAt: now,
       lastMinedAt: now
@@ -118,12 +130,15 @@ function list() {
   });
 }
 
-async function decide(key, decision) {
+// A rejection carries the owner's reason on the record, so a proposal that was turned down can be
+// reviewed later instead of vanishing.
+async function decide(key, decision, reason = null) {
   const p = cache.proposals[key];
   if (!p) throw new Error('Unknown proposal');
   if (!['APPROVED', 'REJECTED'].includes(decision)) throw new Error('Decision must be APPROVED or REJECTED');
   p.status = decision;
   p.decidedAt = new Date().toISOString();
+  if (decision === 'REJECTED') p.rejectedReason = reason ? String(reason) : 'no reason recorded';
   await save();
   return p;
 }

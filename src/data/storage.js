@@ -15,6 +15,11 @@ function serial(collection, fn) {
   return run;
 }
 
+// A file that stays unreadable is loaded again on every engine cycle, so the copy kept as evidence must be
+// taken once per collection rather than once per load — otherwise a single damaged file fills the data
+// folder with identical copies (one every cycle) until something rewrites it.
+const copiedAside = new Set();
+
 async function load(collection) {
   const file = path.join(DATA_DIR, `${collection}.json`);
   if (!await fs.pathExists(file)) return [];
@@ -22,8 +27,18 @@ async function load(collection) {
     return await fs.readJson(file);
   } catch (e) {
     // A damaged file (e.g. cut off mid-write) must not stop the engine: keep a copy and start fresh.
-    await fs.copy(file, `${file}.corrupt-${Date.now()}`);
-    console.log(`[storage] ${collection}.json was unreadable (${e.message}) — copied aside, starting empty`);
+    if (copiedAside.has(collection)) {
+      console.log(`[storage] ${collection}.json is still unreadable (${e.message}) — already copied aside, starting empty`);
+      return [];
+    }
+    copiedAside.add(collection);
+    // The copy is evidence, not a precondition: if it cannot be written, the engine still starts.
+    let kept = true;
+    await fs.copy(file, `${file}.corrupt-${Date.now()}`).catch((copyError) => {
+      kept = false;
+      console.log(`[storage] ${collection}.json could not be copied aside (${copyError.message})`);
+    });
+    console.log(`[storage] ${collection}.json was unreadable (${e.message}) — ${kept ? 'copied aside' : 'not copied aside'}, starting empty`);
     return [];
   }
 }
@@ -44,6 +59,8 @@ async function writeFile(collection, data) {
   for (let attempt = 1; ; attempt++) {
     try {
       await fs.rename(tmp, file);
+      // The file is good again, so a later corruption is a new event and deserves its own copy.
+      copiedAside.delete(collection);
       return;
     } catch (e) {
       if (!RETRYABLE.has(e.code) || attempt >= RENAME_ATTEMPTS) { await fs.remove(tmp).catch(() => {}); throw e; }

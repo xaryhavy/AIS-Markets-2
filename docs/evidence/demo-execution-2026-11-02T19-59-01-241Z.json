@@ -1,0 +1,62 @@
+{
+  "startedAt": "2026-11-02T19:59:01.241Z",
+  "symbol": "EURUSD",
+  "execute": false,
+  "stages": [
+    {
+      "at": "2026-11-02T19:59:33.405Z",
+      "stage": "connected",
+      "account": "Connected to demo account DEMO-ACCOUNT",
+      "balance": 9749.07
+    },
+    {
+      "at": "2026-11-02T19:59:33.682Z",
+      "stage": "planned",
+      "order": {
+        "symbol": "EURUSD",
+        "action": "BUY",
+        "units": 1000,
+        "stopLoss": 1.11926,
+        "takeProfit": 1.12015,
+        "atr": 0.00014785714285714402,
+        "riskReward": 2.955555555553319
+      }
+    }
+  ],
+  "ok": true,
+  "operatingMode": "DEMO_AUTONOMOUS",
+  "modeAllowsBrokerOrders": true,
+  "environment": "demo",
+  "connection": {
+    "state": "ACCOUNT_AUTHENTICATED",
+    "message": "Connected to demo account DEMO-ACCOUNT"
+  },
+  "balance": {
+    "amount": 9749.07,
+    "updatedAt": "2026-11-02T19:59:04.970Z"
+  },
+  "feedReady": true,
+  "openPositionsBefore": [],
+  "quote": {
+    "bid": 1.11948,
+    "ask": 1.11949,
+    "price": 1.119485,
+    "spreadPips": 0.1
+  },
+  "brokerMinimum": {
+    "minVolumeCents": 100000,
+    "stepVolumeCents": 100000,
+    "digits": 5
+  },
+  "planned": {
+    "symbol": "EURUSD",
+    "action": "BUY",
+    "units": 1000,
+    "stopLoss": 1.11926,
+    "takeProfit": 1.12015,
+    "atr": 0.00014785714285714402,
+    "riskReward": 2.955555555553319
+  },
+  "note": "report only — pass --execute to place the order",
+  "accountIdentifierRedacted": "DEMO-ACCOUNT — verbatim copy with the real account number kept in the gitignored data/evidence-raw/"
+}

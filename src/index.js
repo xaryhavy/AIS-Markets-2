@@ -565,8 +565,8 @@ app.post('/api/proposals/mine', async (req, res) => {
 });
 app.post('/api/proposals/decide', async (req, res) => {
   try {
-    const { key, decision } = req.body || {};
-    res.json(await patternMiner.decide(key, decision));
+    const { key, decision, reason } = req.body || {};
+    res.json(await patternMiner.decide(key, decision, reason));
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

@@ -45,3 +45,49 @@ test('errors that are not transient are raised at once, not retried', async () =
     assert.equal(calls.rename, 1);
   } finally { restore(); }
 });
+
+// A damaged file is loaded again every engine cycle; the evidence copy must be taken once, not per load.
+const realRead = { pathExists: fsx.pathExists, readJson: fsx.readJson, copy: fsx.copy };
+function fakeDamaged({ copyFails = false } = {}) {
+  const calls = { copied: 0 };
+  fsx.pathExists = async () => true;
+  fsx.readJson = async () => { throw new SyntaxError('Unexpected token'); };
+  fsx.copy = async () => {
+    calls.copied++;
+    if (copyFails) throw new Error('EPERM: operation not permitted');
+  };
+  return calls;
+}
+function restoreRead() {
+  fsx.pathExists = realRead.pathExists; fsx.readJson = realRead.readJson; fsx.copy = realRead.copy;
+}
+
+test('a file that stays unreadable is copied aside once, not once per load', async () => {
+  const calls = fakeDamaged();
+  try {
+    for (let i = 0; i < 5; i++) assert.deepEqual(await storage.load('test_corrupt_once'), []);
+    assert.equal(calls.copied, 1);
+  } finally { restoreRead(); }
+});
+
+test('a load after a successful save copies the damage aside again', async () => {
+  const calls = fakeDamaged();
+  try {
+    await storage.load('test_corrupt_rearm');
+    await storage.load('test_corrupt_rearm');
+    assert.equal(calls.copied, 1);
+    const writes = fake({ renameErrors: [] });
+    await storage.save('test_corrupt_rearm', []);
+    assert.equal(writes.rename, 1);
+    await storage.load('test_corrupt_rearm');
+    assert.equal(calls.copied, 2);
+  } finally { restore(); restoreRead(); }
+});
+
+test('a failed evidence copy does not stop the load', async () => {
+  const calls = fakeDamaged({ copyFails: true });
+  try {
+    assert.deepEqual(await storage.load('test_corrupt_copy_fails'), []);
+    assert.equal(calls.copied, 1);
+  } finally { restoreRead(); }
+});
