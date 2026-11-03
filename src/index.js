@@ -398,6 +398,68 @@ app.get('/api/positions', async (req, res) => res.json(await riskManager.getOpen
 
 // ============ INTELLIGENCE TOOLS ============
 app.get('/api/strategies', (req, res) => res.json(listStrategies()));
+
+// ============ STRATEGY REGISTRY ============
+// The engine runs a strategy only when its current version is APPROVED and DEPLOYED. Approval names the
+// content hash it covers, so a change to the rules or the strategy's own code needs a new approval.
+const strategyRegistry = require('./strategy/registry');
+const baseline = require('./strategy/baseline');
+
+app.get('/api/strategies/registry', async (req, res) => {
+  try {
+    res.json(await strategyRegistry.all());
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// What the engine would and would not run right now, with the reason for each.
+app.get('/api/strategies/registry/gate', async (req, res) => {
+  try {
+    await baseline.ensure();
+    const gates = {};
+    for (const name of listStrategies()) gates[name] = await strategyRegistry.gate(name);
+    res.json({ runnable: await strategyRegistry.runnableNames(), gates });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Registers rules as a new version. Identical content returns the existing version and changes nothing.
+app.post('/api/strategies/registry/register', async (req, res) => {
+  const { strategy, rules, reason } = req.body || {};
+  if (!strategy || !rules) return res.status(400).json({ error: 'strategy and rules are required' });
+  try {
+    const result = await strategyRegistry.register(strategy, rules, { actor: 'owner', reason: reason || 'registered by owner' });
+    audit.record('STRATEGY_REGISTERED', { strategy, version: result.record.version, hash: result.record.hash, created: result.created });
+    res.json(result);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/strategies/registry/approve', async (req, res) => {
+  const { strategy, version, hash, reason } = req.body || {};
+  try {
+    const record = await strategyRegistry.approve(strategy, version, hash, { actor: 'owner', reason });
+    audit.record('STRATEGY_APPROVED', { strategy, version, hash: record.hash, reason });
+    res.json(record);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/strategies/registry/deploy', async (req, res) => {
+  const { strategy, version, reason } = req.body || {};
+  try {
+    const record = await strategyRegistry.deploy(strategy, version, { actor: 'owner', reason });
+    audit.record('STRATEGY_DEPLOYED', { strategy, version, hash: record.hash, reason });
+    signalEngine.resetBaseline();
+    res.json(record);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/strategies/registry/retire', async (req, res) => {
+  const { strategy, version, reason } = req.body || {};
+  try {
+    const record = await strategyRegistry.retire(strategy, version, { actor: 'owner', reason });
+    audit.record('STRATEGY_RETIRED', { strategy, version, reason });
+    signalEngine.resetBaseline();
+    res.json(record);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.get('/api/adaptive/stats', async (req, res) => res.json(await adaptiveLearner.getStats()));
 // Synthetic development runs. Every result carries dataSource: 'SYNTHETIC' and its cost model, so it can
 // never be read as broker evidence. Costs and the ambiguity policy may be supplied explicitly.

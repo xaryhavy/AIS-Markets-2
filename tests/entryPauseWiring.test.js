@@ -8,6 +8,8 @@ const path = require('path');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ais-pausewire-'));
 process.env.AIS_AUDIT_FILE = path.join(dir, 'audit.log');
 process.env.AIS_DATA_DIR = dir;
+// The deploy gate reads the registry in the cycle; without this the real data directory would be written.
+process.env.AIS_REGISTRY_FILE = path.join(dir, 'registry.json');
 const engine = require('../src/engine/tradingEngine');
 const mtmCaps = require('../src/risk/mtmCaps');
 const pause = require('../src/engine/entryPause');

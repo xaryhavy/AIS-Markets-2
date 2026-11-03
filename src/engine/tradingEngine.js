@@ -149,6 +149,14 @@ async function runCycle() {
   // 3. Owner switch, recovery fence and loss caps stop new trades only
   const govCheck = await governance.allowTrade('demo');
   if (!govCheck.allow) { stats.lastBlockReason = govCheck.reason; return; }
+
+  // 3a. The deploy gate. Only a strategy whose current version is APPROVED and DEPLOYED may act, so an
+  // empty registry stops entries outright rather than letting the engine fall back to unreviewed logic.
+  const runnable = await signalEngine.runnableStrategies();
+  if (runnable.size === 0) {
+    stats.lastBlockReason = 'No strategy is deployed — approve and deploy one in the strategy registry';
+    return;
+  }
   stats.lastBlockReason = null;
 
   // 4. Scan all symbols with the adaptive ensemble

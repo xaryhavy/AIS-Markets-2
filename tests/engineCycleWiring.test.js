@@ -5,7 +5,10 @@ const os = require('os');
 const path = require('path');
 
 // Runs the real runCycle with its external dependencies stubbed: no broker, no storage writes, no alerts.
-process.env.AIS_AUDIT_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ais-wire-')), 'audit.log');
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ais-wire-'));
+process.env.AIS_AUDIT_FILE = path.join(dir, 'audit.log');
+// The deploy gate reads the registry in the cycle; without this the real data directory would be written.
+process.env.AIS_REGISTRY_FILE = path.join(dir, 'registry.json');
 const engine = require('../src/engine/tradingEngine');
 const mtmCaps = require('../src/risk/mtmCaps');
 const trading = require('../src/ctrader/trading');

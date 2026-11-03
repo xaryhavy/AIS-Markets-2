@@ -500,10 +500,11 @@ type, so a live account cannot be driven under a demo configuration.
 
 In dependency order. Nothing below was attempted in this audit.
 
-1. **Build `src/strategy/registry.js`** — immutable version records with a content hash over the
-   rules, so an approval can bind to a version and a material change produces a new one.
-2. **Lifecycle state machine** with backend-enforced transitions; add the deploy gate so the engine
-   may run only `APPROVED` + `DEPLOYED` versions. Until this exists, E and G cannot pass.
+1. ~~**Build `src/strategy/registry.js`** — immutable version records with a content hash over the
+   rules, so an approval can bind to a version and a material change produces a new one.~~ **Done — §13.**
+2. ~~**Lifecycle state machine** with backend-enforced transitions; add the deploy gate so the engine
+   may run only `APPROVED` + `DEPLOYED` versions.~~ **Done — §13.** E and G are still not PASS: the
+   registry versions a strategy faithfully without the research path that would justify an approval.
 3. **Wire `evaluation.js` into the research path** — candidate qualification, the 70/30 split, and
    `significanceAfterMultipleTesting` with a truthful count of strategies tested. *Partly done in
    §11*: the multiple-testing correction now runs and is recorded per rule. Still to do: run
@@ -753,6 +754,64 @@ validation command should be allowed to do, which is the owner's call — but th
 
 ---
 
+## 13. Third pass: the strategy registry and the deploy gate
+
+§10 steps 1 and 2 are done. Steps 3–10 are not.
+
+### 13.1 What was built
+
+`src/strategy/registry.js` holds every strategy the engine could run as an immutable, versioned record.
+
+- **The approval binds to a content hash**, not to a name. The hash covers the declared rules *and* the
+  strategy's own `generate()` source, so a code change produces a new version and needs a new approval.
+  Approving a version names the hash it covers; if the rules changed after the owner read them, the
+  approval is refused rather than silently applied to whatever is on disk.
+- **The state machine is enforced in the registry**, not in the routes, so no route, script or test can
+  move a version somewhere the owner did not authorise. `DRAFT → APPROVED → DEPLOYED → RETIRED`, with
+  `RETIRED → APPROVED` the only way back and no direct `DRAFT → DEPLOYED`. Every transition requires a
+  reason of at least ten characters and is appended to the record's own history.
+- **The deploy gate** (`registry.gate`) admits a strategy only when a version is `DEPLOYED`, and reports
+  which version that is. `signalEngine` filters the ensemble by it, and `tradingEngine.runCycle` stops
+  entries outright when nothing is deployed, with `lastBlockReason` saying so.
+
+### 13.2 The one decision worth naming
+
+A strict gate on an empty registry would have halted a running system the moment it shipped. So the
+first start performs an explicit **migration**, not an approval: `adoptBaseline` adopts whatever is
+already in service as version 1, state `DEPLOYED`, with every history entry attributed to
+`system-migration` and a stated reason. A flag in the file makes it run once. After that every change —
+new rules, changed code — starts at `DRAFT` and waits for the owner.
+
+The alternative — auto-approving the built-ins on every start — would have made the gate decorative.
+
+### 13.3 Routes
+
+`GET /api/strategies/registry`, `GET /api/strategies/registry/gate` (what would and would not run, and
+why), and `POST .../register`, `.../approve`, `.../deploy`, `.../retire`. Each owner action is written to
+the hash-chained audit ledger.
+
+### 13.4 Tests
+
+370 pass, up from 350: 16 in `tests/strategyRegistry.test.js` and 4 in `tests/deployGateWiring.test.js`.
+They cover hash stability under key order, idempotent registration, version increment on change, refusal
+of `DRAFT → DEPLOYED`, hash-bound approval, the reason floor, retirement, adoption running exactly once,
+the deployed version surviving a newer draft above it, and the engine opening nothing when the gate is
+empty. Writing them found two defects in the gate itself — it tested the newest version instead of the
+deployed one, and its read helpers could see an unloaded cache — both fixed before commit.
+
+### 13.5 What this does not do
+
+- **A strategy is still a name plus parameters.** §10 step 4 — entry, stop, target, exit, sizing and
+  invalidation as explicit rules — is untouched. The registry can version a strategy faithfully and
+  still not tell you what it means to trade it.
+- **The hash covers source text, not behaviour.** A refactor forces a re-approval that reviews nothing
+  material; that is the safe direction of error, but it is an error.
+- **Criteria E and G are PARTIAL, not PASS**, and D is unchanged: the versions are now real and the gate
+  is real, but the research path that would justify an approval (§10 step 3) is not yet wired.
+- **The gate is not visible on the dashboard.** It is enforceable through the routes; there is no screen.
+
+---
+
 ## Declaration
 
 **PARTIALLY COMPLETE.**
@@ -762,11 +821,13 @@ order lifecycle has now been verified against the real demo broker, not a fake: 
 protected, closed and reconciled, with the audit ledger to match (§12.6). Nothing in F blocks on the
 environment any more.
 
-`VERIFIED COMPLETE` is still not available, and the reason is unchanged: **twelve criteria fail**, and
-they fail in the half of the system that decides what to trade. There is no strategy registry, no
-version-bound approval, no multiscale analysis, and the statistics module is only partly wired. An
-execution layer that can place an order correctly is not the same as a system that knows which order to
-place, and this audit will not blur the two.
+`VERIFIED COMPLETE` is still not available, and the reason is unchanged: **criteria still fail, and
+they fail in the half of the system that decides what to trade.** §13 has since removed the two
+structural blockers — there is now a strategy registry with version-bound approval and an enforced
+deploy gate — but a version is only as meaningful as the rules it records, and §10 step 4 (entry,
+stop, target, exit, sizing, invalidation) is still untouched. An execution layer that can place an
+order correctly is not the same as a system that knows which order to place, and this audit will not
+blur the two.
 
 Two defects were fixed rather than only reported — the unwired statistics (§11) and the copy flood
 (§12). Two more were found and reported without a fix — the meaningless `validate:demo` command (§12.7)
