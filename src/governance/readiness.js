@@ -17,7 +17,12 @@ function readiness(s) {
     if (!s.allowsOrders) reasons.push(`mode ${s.mode} does not place broker orders`);
     if (s.emergencyOn) reasons.push('emergency stop is on');
     if (s.fenceActive) reasons.push('recovery review required after an unclean shutdown');
-    if (s.entriesPaused) reasons.push(s.entriesPausedReason ? `new entries paused: ${s.entriesPausedReason}` : 'new entries paused (owner resume needed)');
+    // The stored reason is the cause only ("3 consecutive engine cycles failed"), so the label is added here
+    // once. It used to end in "; new entries paused" as well, which the prefix repeated back at the owner.
+    if (s.entriesPaused) {
+      const cause = s.entriesPausedCause ? ` — last cycle error: ${s.entriesPausedCause}` : '';
+      reasons.push(s.entriesPausedReason ? `new entries paused: ${s.entriesPausedReason}${cause}` : 'new entries paused (owner resume needed)');
+    }
     if (!s.tradingEnabled) reasons.push('automatic trading switched off by owner');
     if (s.brokerState !== 'ACCOUNT_AUTHENTICATED') reasons.push(`broker state ${s.brokerState}`);
     if (!s.feedReady) reasons.push('live price feed not ready');

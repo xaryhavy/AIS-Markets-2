@@ -52,19 +52,30 @@ function buildFeatures(signal, trends) {
 // Consecutive failed cycles before the owner is alerted. Each failure is logged; the alert is what makes it visible.
 const CYCLE_FAILURE_ALERT = 3;
 let consecutiveCycleFailures = 0;
+let lastCycleError = null; // the most recent failing cycle's own message, so the owner is told why
 let lastAssessments = {};
 
-// Pure. The alert condition for a run of failed cycles, or null.
-function cycleFailureCondition(n) {
-  return n >= CYCLE_FAILURE_ALERT ? { code: 'CYCLE_FAILING', severity: 'high', message: `${n} consecutive engine cycles failed; new entries are not guaranteed to be safe` } : null;
+// Pure. The alert condition for a run of failed cycles, or null. The cause is included when known: an alert
+// that says only how many cycles failed sends the owner to the logs to find out what actually broke.
+function cycleFailureCondition(n, cause = null) {
+  if (n < CYCLE_FAILURE_ALERT) return null;
+  return { code: 'CYCLE_FAILING', severity: 'high', message: `${n} consecutive engine cycles failed${cause ? `: ${cause}` : ''}; new entries are not guaranteed to be safe` };
+}
+
+// The pause's stored cause, labelled and with the failing cycle's error appended when there is one.
+function entriesPausedMessage() {
+  const s = entryPause.status();
+  // Never a bare status with nothing after it: an alert whose message is empty is read as a display bug.
+  if (!s.reason) return `New entries paused — no reason recorded; resume needs an owner${s.cause ? ` (last cycle error: ${s.cause})` : ''}`;
+  return `New entries paused: ${s.reason}${s.cause ? ` — last cycle error: ${s.cause}` : ''}`;
 }
 
 // Alerts reflect the current conditions every cycle, including cycles where trading is paused.
 async function syncOps() {
   const conditions = [];
-  const failing = cycleFailureCondition(consecutiveCycleFailures);
+  const failing = cycleFailureCondition(consecutiveCycleFailures, lastCycleError);
   if (failing) conditions.push(failing);
-  if (entryPause.status().active) conditions.push({ code: 'ENTRIES_PAUSED', severity: 'high', message: entryPause.status().reason });
+  if (entryPause.status().active) conditions.push({ code: 'ENTRIES_PAUSED', severity: 'high', message: entriesPausedMessage() });
   // Stale data, protection failures and a stalled engine (decision 9 alert set).
   const stale = Object.values(lastAssessments).filter(a => a.reasonCodes && a.reasonCodes.includes('DATA_STALE')).map(a => a.symbol);
   if (stale.length) conditions.push({ code: 'STALE_DATA', severity: 'high', message: `stale market data: ${stale.join(', ')}; new entries blocked for these instruments` });
@@ -144,7 +155,7 @@ async function runCycle() {
   if (capGate.block) { stats.lastBlockReason = capGate.reason; return; }
 
   // 2b. Entries paused after repeated cycle failures: exits above already ran; nothing new is opened until an owner resumes
-  if (entryPause.status().active) { stats.lastBlockReason = entryPause.status().reason; return; }
+  if (entryPause.status().active) { stats.lastBlockReason = entriesPausedMessage(); return; }
 
   // 3. Owner switch, recovery fence and loss caps stop new trades only
   const govCheck = await governance.allowTrade('demo');
@@ -284,12 +295,14 @@ function start(intervalMs = 5000) {
   if (engineInterval) return;
   console.log('[ENGINE] Adaptive trading engine started — cycle every ' + intervalMs / 1000 + 's');
   const safeCycle = () => runCycle()
-    .then(() => { consecutiveCycleFailures = 0; })
+    .then(() => { consecutiveCycleFailures = 0; lastCycleError = null; })
     .catch(e => {
       consecutiveCycleFailures++;
-      console.log(`[ENGINE] cycle error: ${e.message}`);
+      lastCycleError = e && e.message ? e.message : String(e);
+      console.log(`[ENGINE] cycle error: ${lastCycleError}`);
       // Repeated failures pause NEW entries only (owner decision 4). Exits and monitoring keep running.
-      entryPause.tripOnFailures(consecutiveCycleFailures).catch(() => {});
+      // The cause travels with the count, so the alert and the dashboard can say what actually failed.
+      entryPause.tripOnFailures(consecutiveCycleFailures, lastCycleError).catch(() => {});
       // The cycle may have failed before its own alert sync, so sync again from here.
       syncOps().catch(() => {});
     });
@@ -309,7 +322,7 @@ function stop() {
   if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null; }
   if (compactionInterval) { clearInterval(compactionInterval); compactionInterval = null; }
 }
-function getStats() { return { ...stats, lastReconcileOk, lastCycleAt }; }
+function getStats() { return { ...stats, lastReconcileOk, lastCycleAt, consecutiveCycleFailures, lastCycleError }; }
 function engineAgeMs() { return lastCycleAt === null ? null : Date.now() - lastCycleAt; }
 function reconcileStatus() { return { lastReconcileOk, unresolved: lastRec.unresolved.length, unmanaged: lastRec.unmanaged.length }; }
 

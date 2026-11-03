@@ -668,7 +668,8 @@ app.get('/api/readiness', async (req, res) => {
     unresolved: rs.unresolved,
     unmanaged: rs.unmanaged,
     entriesPaused: require('./engine/entryPause').status().active,
-    entriesPausedReason: require('./engine/entryPause').status().reason
+    entriesPausedReason: require('./engine/entryPause').status().reason,
+    entriesPausedCause: require('./engine/entryPause').status().cause
   }));
 });
 

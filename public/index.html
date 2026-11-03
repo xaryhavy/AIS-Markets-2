@@ -113,6 +113,7 @@ async function doLogout(){ await fetch('/api/auth/logout',{method:'POST'}); loca
       <button class="secondary" onclick="minePatterns()">🔎 Find recurring patterns</button>
     </div>
   </div>
+  <div id="alertsList" style="margin-top:.8rem;"></div>
   <div id="proposalsList" style="margin-top:.8rem;"></div>
   <p class="instruction" style="margin-top:.8rem;">Proposed patterns change nothing until you approve them. Approved patterns only move matching signals to the front of the queue.</p>
 </div>
@@ -426,6 +427,15 @@ async function refreshGuardrails(){
     msg.textContent=`${label} · mode ${rd.mode}${rd.reasons.length?' · '+rd.reasons.join('; '):''} · alerts open: ${al.length}${crit?` (${crit} critical)`:''}`;
     el.className='conn-status '+(rd.executionState==='enabled'?'conn-connected':rd.executionState==='uncertain'?'conn-error':'conn-disconnected');
     el.textContent=rd.executionState==='enabled'?'● Ready':rd.executionState==='uncertain'?'✕ Uncertain':'○ Not ready';
+    // The count alone told the owner nothing: "alerts open: 1" with no way to see which alert or why.
+    // Each open alert is shown with its own message, which the backend now fills with the failing cause.
+    const tone=a=>a.severity==='critical'?'#d9534f':a.severity==='high'?'#f0ad4e':a.severity==='info'?'#5bc0de':'#999';
+    document.getElementById('alertsList').innerHTML=al.length?al.map(a=>`
+      <div style="padding:.5rem .6rem;background:#fff8e6;border-left:3px solid ${tone(a)};border-radius:6px;margin:.3rem 0;">
+        <strong>${escAttr(String(a.severity||'').toUpperCase())}</strong>
+        <code style="font-size:.75rem;">${escAttr(a.code||'')}</code> — ${escAttr(a.message||'')}
+        ${a.since?`<br><small style="color:#888;">open since ${escAttr(new Date(a.since).toLocaleString())}</small>`:''}
+      </div>`).join(''):'';
     const props=await(await fetch('/api/proposals')).json();
     document.getElementById('proposalsList').innerHTML=props.length?props.map(p=>`
       <div style="padding:.6rem;background:#f8f9fa;border-radius:8px;margin:.4rem 0;">

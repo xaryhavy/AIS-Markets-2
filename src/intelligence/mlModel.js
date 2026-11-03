@@ -116,6 +116,18 @@ function validate(samples) {
   const sel = summarise(selected);
   const all = summarise(test);
   const active = sel.n >= MIN_SELECTED && sel.avgPnl > all.avgPnl && sel.winRate >= all.winRate;
+  // Why it did not clear the bar, in the numbers that decided it. The dashboard shows this sentence in place
+  // of a generic fallback, so "not yet active" comes with the comparison that made it so.
+  let reason = null;
+  if (!active) {
+    if (sel.n < MIN_SELECTED) {
+      reason = `only ${sel.n} held-back trade(s) cleared the ${Math.round(MIN_PROBABILITY * 100)}% probability bar; ${MIN_SELECTED} are needed`;
+    } else if (sel.avgPnl <= all.avgPnl) {
+      reason = `trades it would have taken averaged ${sel.avgPnl} vs ${all.avgPnl} for every held-back trade`;
+    } else {
+      reason = `trades it would have taken won ${Math.round(sel.winRate * 100)}% vs ${Math.round(all.winRate * 100)}% for every held-back trade`;
+    }
+  }
   return {
     trainedOn: train_.length,
     testedOn: test.length,
@@ -124,6 +136,7 @@ function validate(samples) {
     testAll: all,
     fit: evaluate(w, test.map(vectorOf), test.map(t => (t.pnl > 0 ? 1 : 0))),
     active,
+    reason,
     minProbability: MIN_PROBABILITY
   };
 }

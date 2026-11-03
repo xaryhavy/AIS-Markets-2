@@ -42,6 +42,20 @@ test('a model that picks out a real edge on held-back trades is activated', () =
   assert.ok(report.selected.avgPnl > report.testAll.avgPnl);
 });
 
+test('an active model has no reason to explain', () => {
+  assert.equal(ml.validate(samples(600)).reason, null);
+});
+
+test('an inactive model says why, in the numbers that decided it', () => {
+  // Flat outcomes: nothing in the features can pick a winner, so validation must refuse to activate.
+  const flat = samples(200).map((t) => ({ ...t, pnl: -10 }));
+  const report = ml.validate(flat);
+  assert.equal(report.active, false);
+  assert.equal(typeof report.reason, 'string');
+  assert.match(report.reason, /averaged|cleared the \d+% probability bar|won \d+%/,
+    'the reason names a comparison, not a generic refusal');
+});
+
 test('unusable trades are dropped before training', () => {
   const usable = ml.usable([{ pnl: 5, openTime: '2026-01-01T00:00:00Z', symbol: 'EURUSD', action: 'BUY' }, ...samples(3)]);
   assert.equal(usable.length, 3);

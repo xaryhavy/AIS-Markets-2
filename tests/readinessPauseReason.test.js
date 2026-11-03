@@ -14,3 +14,21 @@ test('a pause without a stated reason still says that owner resume is needed', (
   const r = readiness({ ...healthy, entriesPaused: true });
   assert.ok(r.reasons.includes('new entries paused (owner resume needed)'));
 });
+
+test('the cause of the failed cycles travels with the pause into readiness', () => {
+  const r = readiness({
+    ...healthy,
+    entriesPaused: true,
+    entriesPausedReason: '3 consecutive engine cycles failed',
+    entriesPausedCause: 'adaptive weights unreadable (Unexpected end of JSON input)'
+  });
+  assert.ok(r.reasons.includes(
+    'new entries paused: 3 consecutive engine cycles failed — last cycle error: adaptive weights unreadable (Unexpected end of JSON input)'
+  ));
+});
+
+test('the pause reads as one sentence, not the status said twice', () => {
+  const r = readiness({ ...healthy, entriesPaused: true, entriesPausedReason: '3 consecutive engine cycles failed' });
+  const line = r.reasons.find((x) => x.startsWith('new entries paused'));
+  assert.equal((line.match(/new entries paused/gi) || []).length, 1);
+});
