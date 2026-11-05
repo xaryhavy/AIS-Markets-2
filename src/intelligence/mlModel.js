@@ -8,9 +8,13 @@ const { listStrategies } = require('./strategies');
 const timeframes = require('./timeframes');
 const realBacktest = require('../backtest/realBacktest');
 
-const MODEL_FILE = path.join(__dirname, '../../data/ml_model.json');
+const MODEL_FILE = process.env.AIS_ML_MODEL_FILE || path.join(__dirname, '../../data/ml_model.json'); // env override is for tests
 const SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'];
 const REGIMES = ['RANGING', 'TRENDING_UP', 'TRENDING_DOWN', 'VOLATILE'];
+// Live signals are M1; a multi-year backtest runs on a higher timeframe because years of M1 do not fit in
+// memory. The two are different populations, so the model is told which one a trade came from rather than
+// being left to average them together.
+const TIMEFRAMES = ['M1', 'M5'];
 const MIN_PROBABILITY = 0.5;
 const MIN_SELECTED = 20;
 const SPLIT = 0.7;
@@ -27,6 +31,7 @@ function featureNames() {
     'mtf_M5', 'mtf_M15', 'mtf_H1',
     ...SYMBOLS.map(s => `symbol=${s}`),
     ...listStrategies().map(s => `strategy=${s}`),
+    ...TIMEFRAMES.map(t => `tf=${t}`),
     'patterns',
     'bias'
   ];
@@ -48,6 +53,8 @@ function vectorOf(trade) {
     mtf.M5, mtf.M15, mtf.H1,
     ...SYMBOLS.map(s => (trade.symbol === s ? 1 : 0)),
     ...strategies.map(s => (f.strategy === s ? 1 : 0)),
+    // A live trade carries no timeframe because it is always M1; a backtest trade says which one it ran on.
+    ...TIMEFRAMES.map(t => ((trade.timeframe || 'M1') === t ? 1 : 0)),
     Math.min(3, (f.patterns || []).length) / 3,
     1
   ];
@@ -176,7 +183,19 @@ async function collectSamples() {
 }
 
 async function init() {
-  model = await fs.readJson(MODEL_FILE).catch(() => null);
+  const saved = await fs.readJson(MODEL_FILE).catch(() => null);
+  if (!saved) { model = null; return; }
+  // A model trained on a different feature set would score every signal with the wrong weights and say
+  // nothing about it. It is discarded instead, and the next retrain rebuilds it.
+  const names = featureNames();
+  const same = Array.isArray(saved.featureNames) && saved.featureNames.length === names.length
+    && saved.featureNames.every((n, i) => n === names[i]);
+  if (!same) {
+    console.log('[ML] saved model was trained on a different feature set — discarded; the next retrain rebuilds it');
+    model = null;
+    return;
+  }
+  model = saved;
 }
 
 // Re-validates and refits on everything known so far. Returns the validation report.
@@ -191,7 +210,7 @@ async function retrain(samples = null) {
     const fit = fitWeights(data);
     report.weekdays = fit.weekdays;
     report.dayFeaturesDropped = fit.dayFeaturesDropped;
-    model = { weights: fit.weights, report, trainedAt: new Date().toISOString(), featureCount: fit.weights.length };
+    model = { weights: fit.weights, report, trainedAt: new Date().toISOString(), featureCount: fit.weights.length, featureNames: featureNames() };
   }
   lastRetrain = Date.now();
   await fs.ensureDir(path.dirname(MODEL_FILE));

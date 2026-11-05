@@ -486,6 +486,14 @@ app.post('/api/backtest/live', async (req, res) => {
     res.status(400).json({ error: e.message });
   }
 });
+// Multi-year backtest. Fetching years of bars is thousands of broker requests and the run is minutes of CPU,
+// so it is a background job: POST starts it, GET reports progress.
+app.post('/api/backtest/deep', (req, res) => {
+  const { years, timeframe } = req.body || {};
+  const r = require('./backtest/deepBacktest').start({ years, timeframe });
+  res.status(r.started ? 202 : 409).json(r);
+});
+app.get('/api/backtest/deep', (req, res) => res.json(require('./backtest/deepBacktest').status()));
 app.get('/api/ml/status', (req, res) => res.json(mlModel.status()));
 app.post('/api/ml/retrain', async (req, res) => res.json(await mlModel.retrain()));
 app.post('/api/optimize/run', (req, res) => {

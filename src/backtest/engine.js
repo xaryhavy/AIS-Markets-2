@@ -10,6 +10,12 @@ const { strategies } = require('../intelligence/strategies');
 const ind = require('../intelligence/indicators');
 
 const WARMUP = 30;
+// Bars handed to a strategy at each step. Every strategy and indicator here looks back at most 50 bars
+// (SMA50 in the regime detector), but MACD is EMA-based and an EMA never fully forgets: 500 bars is where
+// the oldest bar's influence falls below double precision, so the window is exact rather than approximate.
+// It is also what makes a multi-year backtest possible — slicing the whole history at every bar is O(n²),
+// which is 1.4e11 element copies over five years of M5.
+const WINDOW = 500;
 // Cost model: spread and slippage are in price units per fill; commission is account currency per trade.
 const ZERO_COSTS = { spread: 0, slippage: 0, commission: 0 };
 // How a stop and a target both touched inside one bar are treated. Stop-first is the conservative default.
@@ -175,7 +181,7 @@ function runBacktest(strategyName, params = {}, options = {}) {
     // 2. Entry: the signal is built from the bars that had completed by this bar's close, and the fill is
     //    taken at that close. It is never exposed to this same bar's range.
     if (!position) {
-      const slice = history.slice(0, i + 1);
+      const slice = history.slice(Math.max(0, i + 1 - WINDOW), i + 1);
       const sig = strategy.generate(slice, p);
       if (sig.action !== 'HOLD' && sig.score >= (options.minScore || 20)) {
         const atrVal = ind.atr(slice, 14);

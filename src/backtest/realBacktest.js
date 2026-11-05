@@ -23,10 +23,15 @@ async function loadTrades() {
 
 // Features of a backtest trade, measured with only the bars that existed at entry.
 // The entry happens when the bar at openBar closes, so higher-frame bars must have ended by then.
-function featuresAt(history, openBar, strategy, frames) {
-  const slice = history.slice(0, openBar + 1);
+// Bars the feature reader looks at. The regime detector needs SMA50 and the pattern reader three bars, so
+// 500 is generous; slicing the whole series per trade is what made a multi-year backtest quadratic.
+const FEATURE_WINDOW = 500;
+
+function featuresAt(history, openBar, strategy, frames, barMs = 60000) {
+  const slice = history.slice(Math.max(0, openBar + 1 - FEATURE_WINDOW), openBar + 1);
   const time = new Date(history[openBar].time);
-  const decisionTime = history[openBar].time + 60000;
+  // The decision is taken when the entry bar closes, which is one bar after it opened — not always a minute.
+  const decisionTime = history[openBar].time + barMs;
   return {
     regime: regimeDetector.classify(slice).regime,
     hourUtc: time.getUTCHours(),
@@ -59,6 +64,7 @@ async function runOnLiveHistory(options = {}, { learn = true } = {}) {
         symbol,
         action: t.action,
         pnl: t.pnl,
+        timeframe: 'M1',
         openTime: new Date(history[t.openBar].time).toISOString(),
         features: featuresAt(history, t.openBar, strategy, frames)
       }));
@@ -78,4 +84,9 @@ async function storedTrades() {
   return Object.values(await loadTrades()).flat();
 }
 
-module.exports = { runOnLiveHistory, storedTrades, featuresAt };
+async function saveTrades(stored) {
+  await fs.ensureDir(path.dirname(TRADES_FILE));
+  await fs.writeJson(TRADES_FILE, stored);
+}
+
+module.exports = { runOnLiveHistory, storedTrades, featuresAt, loadTrades, saveTrades, TRADES_FILE };

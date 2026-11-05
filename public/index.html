@@ -110,10 +110,12 @@ async function doLogout(){ await fetch('/api/auth/logout',{method:'POST'}); loca
     <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap;">
       <button class="secondary" id="ackBtn" onclick="acknowledgeFence()" style="display:none;">✅ Acknowledge restart review</button>
       <button class="secondary" onclick="runLiveBacktest()">🧪 Backtest on live bars</button>
+      <button class="secondary" onclick="runDeepBacktest()">📚 Backtest 5 years</button>
       <button class="secondary" onclick="minePatterns()">🔎 Find recurring patterns</button>
     </div>
   </div>
   <div id="alertsList" style="margin-top:.8rem;"></div>
+  <div id="deepStatus" style="margin-top:.5rem;font-size:.85rem;color:#666;"></div>
   <div id="proposalsList" style="margin-top:.8rem;"></div>
   <p class="instruction" style="margin-top:.8rem;">Proposed patterns change nothing until you approve them. Approved patterns only move matching signals to the front of the queue.</p>
 </div>
@@ -436,6 +438,14 @@ async function refreshGuardrails(){
         <code style="font-size:.75rem;">${escAttr(a.code||'')}</code> — ${escAttr(a.message||'')}
         ${a.since?`<br><small style="color:#888;">open since ${escAttr(new Date(a.since).toLocaleString())}</small>`:''}
       </div>`).join(''):'';
+    // A multi-year backtest runs for minutes in the background; without this the button would look dead.
+    const deep=await(await fetch('/api/backtest/deep')).json();
+    const deepEl=document.getElementById('deepStatus');
+    deepEl.textContent = deep.running
+      ? `Deep backtest running: ${deep.phase}${deep.symbol?' · '+deep.symbol:''} · ${deep.symbolsDone}/${deep.symbolsTotal} symbols · ${deep.trades} trades`
+      : deep.phase==='done'
+        ? `Deep backtest finished ${new Date(deep.finishedAt).toLocaleString()} — ${deep.trades} trades over ${deep.bars} bars of ${deep.timeframe}`
+        : deep.phase==='failed' ? `Deep backtest failed: ${deep.error}` : '';
     const props=await(await fetch('/api/proposals')).json();
     document.getElementById('proposalsList').innerHTML=props.length?props.map(p=>`
       <div style="padding:.6rem;background:#f8f9fa;border-radius:8px;margin:.4rem 0;">
@@ -459,6 +469,17 @@ async function runLiveBacktest(){
     alert('Backtest finished: '+runs+' strategy/symbol runs learned.\nML model: '+(m.active?'active — it now gates trades above '+Math.round((m.minProbability||0.5)*100)+'% win probability':'not yet active ('+(m.reason||'did not beat the average trade on held-back data')+')')+'.');
   }catch(e){ alert('Backtest failed: '+e.message); }
   btn.disabled=false; btn.textContent='🧪 Backtest on live bars';
+}
+async function runDeepBacktest(){
+  const btn=event.target; btn.disabled=true; btn.textContent='Starting…';
+  try{
+    const r=await(await fetch('/api/backtest/deep',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({years:5,timeframe:'M5'})})).json();
+    alert(r.started
+      ? 'Deep backtest started. It fetches years of bars from the broker and takes several minutes; progress is shown in the safety panel.'
+      : 'Deep backtest not started: '+(r.reason||'unknown reason'));
+  }catch(e){ alert('Deep backtest failed to start: '+e.message); }
+  btn.disabled=false; btn.textContent='📚 Backtest 5 years';
+  refreshGuardrails();
 }
 async function minePatterns(){
   await fetch('/api/proposals/mine',{method:'POST'});
