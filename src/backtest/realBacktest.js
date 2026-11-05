@@ -11,9 +11,11 @@ const adaptiveLearner = require('../intelligence/adaptiveLearner');
 const timeframes = require('../intelligence/timeframes');
 const { listStrategies } = require('../intelligence/strategies');
 
-const TRADES_FILE = path.join(__dirname, '../../data/backtest_trades.json');
+const TRADES_FILE = process.env.AIS_BACKTEST_TRADES_FILE || path.join(__dirname, '../../data/backtest_trades.json'); // env override is for tests
 const MIN_BARS = 200;
-const BARS = 2000;
+// The whole M1 buffer, not a fixed slice of it. A hardcoded 2,000 here capped every backtest — and so every
+// learned weight and the ML model — at 33 hours of history no matter how much the feed had stored.
+const BARS = marketData.maxBars('M1');
 
 async function loadTrades() {
   try { return await fs.readJson(TRADES_FILE); } catch { return {}; }
@@ -45,9 +47,9 @@ async function runOnLiveHistory(options = {}, { learn = true } = {}) {
       continue;
     }
     const frames = {
-      M5: marketData.getHistory(symbol, 2000, 'M5'),
-      M15: marketData.getHistory(symbol, 2000, 'M15'),
-      H1: marketData.getHistory(symbol, 2000, 'H1')
+      M5: marketData.getHistory(symbol, marketData.maxBars('M5'), 'M5'),
+      M15: marketData.getHistory(symbol, marketData.maxBars('M15'), 'M15'),
+      H1: marketData.getHistory(symbol, marketData.maxBars('H1'), 'H1')
     };
     for (const strategy of listStrategies()) {
       // These are real cTrader bars, and the result says so. Costs and the ambiguity policy come from the caller.

@@ -60,3 +60,27 @@ test('unusable trades are dropped before training', () => {
   const usable = ml.usable([{ pnl: 5, openTime: '2026-01-01T00:00:00Z', symbol: 'EURUSD', action: 'BUY' }, ...samples(3)]);
   assert.equal(usable.length, 3);
 });
+
+// A corpus of two days taught the model that Sunday was the best day to trade instruments that do not trade
+// on Sunday. The weekday terms are only fitted when the data actually spans the week.
+test('weekday terms are dropped when the corpus does not span the week', () => {
+  const twoDays = samples(400).map(t => ({ ...t, features: { ...t.features, dayOfWeek: 3 } }));
+  const fit = ml.fitWeights(twoDays);
+  assert.equal(fit.weekdays, 1);
+  assert.equal(fit.dayFeaturesDropped, true);
+  assert.equal(fit.weights[6], 0, 'day_sin is not fitted on a single weekday');
+  assert.equal(fit.weights[7], 0, 'day_cos is not fitted on a single weekday');
+});
+
+test('weekday terms are kept once the corpus spans the week', () => {
+  const fit = ml.fitWeights(samples(400));
+  assert.equal(fit.weekdays, 7);
+  assert.equal(fit.dayFeaturesDropped, false);
+  assert.ok(fit.weights[6] !== 0 || fit.weights[7] !== 0, 'a full week of data may speak about weekdays');
+});
+
+test('the validation report says whether the weekday terms were used', () => {
+  const twoDays = samples(400).map(t => ({ ...t, features: { ...t.features, dayOfWeek: 3 } }));
+  assert.equal(ml.validate(twoDays).dayFeaturesDropped, true);
+  assert.equal(ml.validate(samples(400)).dayFeaturesDropped, false);
+});

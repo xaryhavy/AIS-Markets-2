@@ -3,7 +3,11 @@
 // Bars are kept per timeframe: M1 for execution and backtests, M5/M15/H1 for higher-timeframe context.
 const WANTED = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'];
 const TF_MINUTES = { M1: 1, M5: 5, M15: 15, H1: 60 };
-const MAX_BARS = { M1: 6000, M5: 2000, M15: 2000, H1: 2000 };
+// M1 is the backtest's only source of trades, so its depth is the depth of everything the system can learn.
+// 20,000 one-minute bars is about two weeks of trading — enough for the model to see every weekday and more
+// than one market regime. It was 6,000 (four days) while the backtest asked for 2,000 (33 hours), which is
+// why the learned weekday weights were fitted on two days and extrapolated to the other five.
+const MAX_BARS = { M1: 20000, M5: 2000, M15: 2000, H1: 2000 };
 
 const live = {};                                   // symbol -> { bid, ask, price, time }
 const bars = { M1: {}, M5: {}, M15: {}, H1: {} };  // timeframe -> symbol -> [{ time, open, high, low, close }]
@@ -22,6 +26,10 @@ function getPrice(symbol) { return live[symbol]?.price; }
 function getHistory(symbol, limit = 50, tf = 'M1') {
   return (bars[tf][symbol] || []).slice(-limit);
 }
+
+// How many bars of a timeframe the store keeps. Callers that want "all the history there is" ask for this
+// rather than repeating a number, so the seed, the buffer and the backtest cannot drift apart again.
+function maxBars(tf = 'M1') { return MAX_BARS[tf]; }
 
 // Latest quote as a tick; null when the symbol has no live feed.
 function getTick(symbol) {
@@ -67,4 +75,4 @@ function clearLive() {
   for (const s of Object.keys(live)) delete live[s];
 }
 
-module.exports = { wantedSymbols, timeframes, getSymbols, isConnected, isLive, getPrice, getHistory, getTick, setBars, setQuote, clearLive, quoteAgeMs, getQuote, TF_MINUTES };
+module.exports = { wantedSymbols, timeframes, getSymbols, isConnected, isLive, getPrice, getHistory, maxBars, getTick, setBars, setQuote, clearLive, quoteAgeMs, getQuote, TF_MINUTES };

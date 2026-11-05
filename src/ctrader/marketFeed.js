@@ -5,13 +5,18 @@ const marketData = require('../data/marketdata');
 // ProtoOATrendbarPeriod values and minutes per bar.
 const PERIOD = { M1: 1, M5: 5, M15: 7, H1: 9 };
 const SEED = { M1: 1, M5: 5, M15: 15, H1: 60 };
-const SEED_BARS = { M1: 3000, M5: 1000, M15: 1000, H1: 1000 };
+// Seed as deep as the store keeps, so the backtest can see the whole buffer from the first run. A shallower
+// seed than the buffer is a silent cap: the store would never fill, and the model would learn from less
+// history than the system appears to hold.
+const SEED_BARS = { M1: marketData.maxBars('M1'), M5: marketData.maxBars('M5'), M15: marketData.maxBars('M15'), H1: marketData.maxBars('H1') };
 const CHUNK = 1000; // broker returns at most this many bars per request
 
 // Fetches `total` bars ending now, in chunks, oldest first, without duplicates.
 // Stops when the broker has no more history, when a chunk adds nothing new (the broker is repeating itself),
 // when the chunk limit is reached, or when the deadline passes. Without these the loop could run forever.
-const FETCH_DEADLINE_MS = 60000;
+// Two weeks of M1 is 20 chunks of 1,000 bars per symbol, so the deadline has to cover a slow broker without
+// letting a stuck one hold startup forever.
+const FETCH_DEADLINE_MS = 180000;
 async function fetchBars(client, accountId, symbolId, period, minutes, total, { deadlineMs = FETCH_DEADLINE_MS, now = Date.now } = {}) {
   const byTime = new Map();
   const deadline = now() + deadlineMs;
@@ -85,6 +90,9 @@ async function start(client, accountId) {
     for (const [tf, minutes] of Object.entries(SEED)) {
       const list = await fetchBars(client, accountId, info[sym].symbolId, PERIOD[tf], minutes, SEED_BARS[tf]);
       marketData.setBars(sym, list, tf);
+      // A broker that holds less history than asked for is not an error, but it is the reason a backtest
+      // covers less than expected — so it is said out loud rather than left to be discovered later.
+      if (list.length < SEED_BARS[tf]) console.log(`[cTrader] ${sym} ${tf}: broker returned ${list.length} of ${SEED_BARS[tf]} bars`);
     }
   }
 
@@ -131,4 +139,4 @@ function roundPrice(symbol, price) {
   return Number(price.toFixed(getInfo(symbol).digits));
 }
 
-module.exports = { start, stop, isReady, getInfo, unitsToVolume, roundPrice, nameForSymbolId, fetchBars, PRICE_SCALE, PERIOD };
+module.exports = { start, stop, isReady, getInfo, unitsToVolume, roundPrice, nameForSymbolId, fetchBars, PRICE_SCALE, PERIOD, SEED_BARS };

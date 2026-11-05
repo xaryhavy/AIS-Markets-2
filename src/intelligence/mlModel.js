@@ -76,6 +76,31 @@ function train(X, y, { epochs = 500, lr = 0.3, l2 = 0.001 } = {}) {
   return w;
 }
 
+// Positions of the weekday terms in featureNames(). They are only meaningful when the corpus spans the week:
+// fitted on two days they extrapolate to the other five, which is how the model came to believe Sunday was
+// the best day to trade instruments that do not trade on Sunday. Below the threshold they are dropped.
+const DAY_SIN = 6, DAY_COS = 7;
+const MIN_WEEKDAYS = 5;
+
+function distinctWeekdays(samples) {
+  const days = new Set();
+  for (const t of samples) {
+    const d = t.features && t.features.dayOfWeek;
+    if (Number.isFinite(d)) days.add(d);
+  }
+  return days.size;
+}
+
+// Fits the weights and reports whether the weekday terms survived. Used for both the validation fit and the
+// final model, so the report and the live scoring can never disagree about which features are in play.
+function fitWeights(samples) {
+  const weights = train(samples.map(vectorOf), samples.map(t => (t.pnl > 0 ? 1 : 0)));
+  const weekdays = distinctWeekdays(samples);
+  const dayFeaturesDropped = weekdays < MIN_WEEKDAYS;
+  if (dayFeaturesDropped) { weights[DAY_SIN] = 0; weights[DAY_COS] = 0; }
+  return { weights, weekdays, dayFeaturesDropped };
+}
+
 function evaluate(w, X, y) {
   if (!X.length) return { n: 0, accuracy: 0, logLoss: 0 };
   let correct = 0, loss = 0;
@@ -110,7 +135,8 @@ function validate(samples) {
   const train_ = samples.slice(0, cut);
   const test = samples.slice(cut);
   const featureLen = vectorOf(samples[0]).length;
-  const w = train(train_.map(vectorOf), train_.map(t => (t.pnl > 0 ? 1 : 0)));
+  const fit = fitWeights(train_);
+  const w = fit.weights;
   const scored = test.map(t => ({ trade: t, p: sigmoid(dot(w, vectorOf(t))) }));
   const selected = scored.filter(s => s.p >= MIN_PROBABILITY).map(s => s.trade);
   const sel = summarise(selected);
@@ -137,6 +163,8 @@ function validate(samples) {
     fit: evaluate(w, test.map(vectorOf), test.map(t => (t.pnl > 0 ? 1 : 0))),
     active,
     reason,
+    weekdays: fit.weekdays,
+    dayFeaturesDropped: fit.dayFeaturesDropped,
     minProbability: MIN_PROBABILITY
   };
 }
@@ -158,8 +186,12 @@ async function retrain(samples = null) {
     model = { weights: null, report: { active: false, reason: `Only ${data.length} trades; at least 50 needed`, trainedOn: data.length }, trainedAt: new Date().toISOString() };
   } else {
     const report = validate(data);
-    const weights = train(data.map(vectorOf), data.map(t => (t.pnl > 0 ? 1 : 0)));
-    model = { weights, report, trainedAt: new Date().toISOString(), featureCount: weights.length };
+    // The final model is fitted on everything, so its weekday decision is the one that counts — the report
+    // is corrected to match rather than left describing the 70% slice it was validated on.
+    const fit = fitWeights(data);
+    report.weekdays = fit.weekdays;
+    report.dayFeaturesDropped = fit.dayFeaturesDropped;
+    model = { weights: fit.weights, report, trainedAt: new Date().toISOString(), featureCount: fit.weights.length };
   }
   lastRetrain = Date.now();
   await fs.ensureDir(path.dirname(MODEL_FILE));
@@ -190,4 +222,4 @@ function status() {
   };
 }
 
-module.exports = { init, retrain, maybeRetrain, probability, status, vectorOf, validate, usable, collectSamples, MIN_PROBABILITY, featureNames, train, sigmoid };
+module.exports = { init, retrain, maybeRetrain, probability, status, vectorOf, validate, usable, collectSamples, MIN_PROBABILITY, featureNames, train, sigmoid, fitWeights, distinctWeekdays };
